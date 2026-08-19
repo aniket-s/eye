@@ -1,0 +1,158 @@
+import { expect, test, type Page } from '@playwright/test';
+
+/**
+ * Errors caused by a blocked or offline third-party host rather than by our code.
+ *
+ * The app still loads a webfont from `fonts.googleapis.com`. That is a third-party
+ * request in an app whose selling point is that nothing leaves the device, and it
+ * breaks the page in restricted networks. Self-hosting the font is queued for
+ * Phase 5 alongside offline/PWA support; until then these are filtered so an
+ * offline CI runner does not fail the suite for the wrong reason.
+ */
+const EXTERNAL_RESOURCE_ERROR =
+  /ERR_TUNNEL_CONNECTION_FAILED|ERR_NAME_NOT_RESOLVED|ERR_INTERNET_DISCONNECTED|net::ERR_/;
+
+/** Collect console errors so a test can assert the page loaded cleanly. */
+function trackConsoleErrors(page: Page): string[] {
+  const errors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error' && !EXTERNAL_RESOURCE_ERROR.test(message.text())) {
+      errors.push(message.text());
+    }
+  });
+  page.on('pageerror', (error) => errors.push(error.message));
+  return errors;
+}
+
+test.describe('application shell', () => {
+  test('loads the home page without console errors', async ({ page }) => {
+    const errors = trackConsoleErrors(page);
+    await page.goto('/');
+
+    await expect(page.locator('#home')).toHaveClass(/active/);
+    await expect(page.getByRole('heading', { name: 'MudraPragyan.AI' })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test('navigates between pages and reflects the hash', async ({ page }) => {
+    await page.goto('/');
+
+    await page.locator('.home-card[data-page="dictionary"]').click();
+    await expect(page.locator('#dictionary')).toHaveClass(/active/);
+    expect(page.url()).toContain('#dictionary');
+
+    await page.locator('#dictionary .back-btn').click();
+    await expect(page.locator('#home')).toHaveClass(/active/);
+  });
+
+  test('supports deep linking straight to the translator', async ({ page }) => {
+    await page.goto('/#translator');
+    await expect(page.locator('#translator')).toHaveClass(/active/);
+  });
+
+  test('restores the previous page with the browser Back button', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('.home-card[data-page="translator"]').click();
+    await expect(page.locator('#translator')).toHaveClass(/active/);
+
+    await page.goBack();
+    await expect(page.locator('#home')).toHaveClass(/active/);
+  });
+
+  test('opens and closes the side menu, including with Escape', async ({ page }) => {
+    await page.goto('/');
+    const menu = page.locator('#sideMenu');
+    const toggle = page.locator('#menuToggle');
+
+    await toggle.click();
+    await expect(menu).toHaveClass(/open/);
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+    await page.keyboard.press('Escape');
+    await expect(menu).not.toHaveClass(/open/);
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  });
+});
+
+test.describe('model loading', () => {
+  test('reports the model as ready with its label count', async ({ page }) => {
+    await page.goto('/#translator');
+    // 26 letters + space in the v1 export.
+    await expect(page.locator('#modelStatus')).toContainText('27 signs loaded', {
+      timeout: 30_000,
+    });
+    await expect(page.locator('#modelStatus')).toHaveClass(/ready/);
+  });
+
+  test('surfaces a clear error when the model is missing', async ({ page }) => {
+    await page.route('**/model_weights.json', (route) => route.fulfill({ status: 404 }));
+    await page.goto('/#translator');
+
+    await expect(page.locator('#modelStatus')).toHaveClass(/error/, { timeout: 30_000 });
+    await expect(page.locator('#modelStatus')).toContainText('404');
+  });
+});
+
+test.describe('dictionary', () => {
+  test('renders every category and its signs', async ({ page }) => {
+    await page.goto('/#dictionary');
+
+    await expect(page.locator('.cat-pill')).toHaveCount(11);
+    await expect(page.locator('#sec-alphabets .sign-card')).toHaveCount(26);
+    await expect(page.locator('#sec-numbers .sign-card')).toHaveCount(11);
+  });
+
+  test('opens a sign in the detail modal and closes it with Escape', async ({ page }) => {
+    await page.goto('/#dictionary');
+
+    await page.locator('#sec-alphabets .sign-card').first().click();
+    await expect(page.locator('#modal')).toHaveClass(/show/);
+    await expect(page.locator('#modalName')).toHaveText('A');
+
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#modal')).not.toHaveClass(/show/);
+  });
+
+  /**
+   * Pins the known-broken state from docs/AUDIT.md (A1): no dictionary images exist,
+   * so every card falls through to the placeholder. Phase 2 inverts this assertion.
+   */
+  test('KNOWN ISSUE: every sign image is missing and shows the placeholder', async ({ page }) => {
+    await page.goto('/#dictionary');
+    const firstCard = page.locator('#sec-alphabets .sign-card').first();
+    await expect(firstCard.locator('.placeholder')).toBeVisible({ timeout: 15_000 });
+  });
+});
+
+test.describe('sentence builder', () => {
+  test('adds, deletes and clears text', async ({ page }) => {
+    await page.goto('/#translator');
+    const display = page.locator('#sentenceDisplay');
+
+    await expect(display).toHaveClass(/empty/);
+
+    await page.locator('#addSpace').click();
+    await expect(display).not.toHaveClass(/empty/);
+
+    await page.locator('#backspace').click();
+    await expect(display).toHaveClass(/empty/);
+
+    await page.locator('#addSpace').click();
+    await page.locator('#clearSentence').click();
+    await expect(display).toHaveClass(/empty/);
+  });
+});
+
+test.describe('debug overlay', () => {
+  test('toggles with the D key and the button', async ({ page }) => {
+    await page.goto('/#translator');
+    const panel = page.locator('#debugPanel');
+
+    await expect(panel).toBeHidden();
+    await page.keyboard.press('d');
+    await expect(panel).toBeVisible();
+
+    await page.locator('#debugToggle').click();
+    await expect(panel).toBeHidden();
+  });
+});

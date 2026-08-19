@@ -1,0 +1,32 @@
+/**
+ * `@mudrapragyan/core` — DOM-free recognition logic.
+ *
+ * Every export here is pure TypeScript with no browser dependencies, so the whole
+ * recognition path can be unit-tested in Node against recorded landmark fixtures.
+ */
+
+export * from './types.js';
+
+export { relu, softmax, argmax } from './math/activations.js';
+export { MIN_SCALE, distance2d, distance3d, palmScale2d, palmScale3d } from './math/geometry.js';
+
+export { landmarksToVector, LANDMARK_VECTOR_LENGTH } from './features/landmarkVector.js';
+export { MlpClassifier } from './model/mlp.js';
+
+export { SentenceBuffer, type SentenceListener } from './sentence/sentenceBuffer.js';
+export {
+  HoldCommitDetector,
+  type HoldCommitOptions,
+  type HoldCommitResult,
+} from './temporal/holdCommit.js';
+
+export {
+  LegacyRecognizer,
+  MIN_CONFIDENCE,
+  SPACE_LABEL,
+  type RecognitionResult,
+} from './pipeline/legacyRecognizer.js';
+
+// Legacy — removed in Phases 2 and 3. See src/legacy/README.md.
+export { geometricFix } from './legacy/geometricFix.js';
+export { JzStateMachine } from './legacy/jzStateMachine.js';

@@ -1,0 +1,8 @@
+dist/
+dist-types/
+coverage/
+playwright-report/
+test-results/
+package-lock.json
+packages/web/public/model_weights.json
+packages/web/src/styles/app.css

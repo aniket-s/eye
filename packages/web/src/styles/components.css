@@ -1,0 +1,165 @@
+/**
+ * Styles lifted out of the inline `style="…"` attributes in the v1 `index.html`.
+ *
+ * Values are preserved exactly so Phase 0 changes nothing visually. The debug panel,
+ * accuracy-test modal, and their buttons were the only parts of the original still
+ * carrying inline styles.
+ */
+
+/* `hidden` must win over the display values set below. */
+[hidden] {
+  display: none !important;
+}
+
+/* ── Debug overlay ── */
+.debug-panel {
+  background: #111;
+  color: #0f0;
+  font-family: monospace;
+  font-size: 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-top: 6px;
+  line-height: 1.7;
+}
+.debug-panel .debug-hint {
+  color: #888;
+  margin-top: 4px;
+}
+.debug-panel .debug-hint b {
+  color: #fff;
+}
+.debug-btn {
+  margin-top: 6px;
+  font-size: 11px;
+  padding: 3px 10px;
+  cursor: pointer;
+  background: #222;
+  color: #aaa;
+  border: 1px solid #444;
+  border-radius: 4px;
+}
+
+/* ── Accuracy test trigger ── */
+.test-btn {
+  margin-top: 14px;
+  width: 100%;
+  padding: 10px;
+  background: #1e3a5f;
+  color: #7eb8f7;
+  border: 1px solid #2a5080;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  letter-spacing: 0.5px;
+}
+
+/* ── Accuracy test modal ── */
+.test-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.88);
+  z-index: 2000;
+  justify-content: center;
+  align-items: center;
+}
+.test-modal.show {
+  display: flex;
+}
+.test-box {
+  background: #161616;
+  border: 1px solid #2a2a2a;
+  border-radius: 18px;
+  padding: 40px 48px;
+  text-align: center;
+  min-width: 360px;
+  max-width: 480px;
+}
+.test-caption {
+  color: #666;
+  font-size: 13px;
+  margin-bottom: 6px;
+  letter-spacing: 1px;
+}
+#testPhase2 .test-caption {
+  color: #aaa;
+  margin-bottom: 10px;
+  letter-spacing: normal;
+}
+.test-target {
+  font-size: 110px;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.1;
+}
+.test-countdown {
+  font-size: 52px;
+  font-weight: 700;
+  color: #f0a500;
+  margin: 8px 0;
+}
+.test-hint {
+  color: #444;
+  font-size: 12px;
+}
+.test-progress {
+  color: #555;
+  font-size: 12px;
+  margin-top: 12px;
+}
+.test-live-wrap {
+  margin-top: 18px;
+  background: #1a1a1a;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 13px;
+  color: #888;
+}
+.test-live {
+  color: #fff;
+  font-weight: 600;
+}
+.test-cancel {
+  margin-top: 18px;
+  padding: 8px 22px;
+  background: transparent;
+  color: #555;
+  border: 1px solid #333;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.test-score {
+  font-size: 36px;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 20px;
+}
+.test-results {
+  max-height: 320px;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.9;
+  text-align: left;
+  background: #1a1a1a;
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+.test-close {
+  margin-top: 20px;
+  padding: 10px 28px;
+  background: #f0a500;
+  color: #000;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* ── Focus visibility (accessibility baseline) ── */
+:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}

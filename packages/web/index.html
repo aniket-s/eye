@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MudraPragyan.AI</title>
+    <meta
+      name="description"
+      content="Translate sign language into text in real time. All processing happens on your device — video never leaves your computer."
+    />
+    <link rel="icon" href="/logo.png" type="image/png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <button class="hamburger" id="menuToggle" aria-label="Open menu" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+
+    <nav class="side-menu" id="sideMenu" aria-label="Main">
+      <div class="side-menu-logo">
+        <img src="/logo.png" alt="" width="40" height="40" />
+        <span>MudraPragyan.AI</span>
+      </div>
+      <a href="#home" data-page="home" class="active"
+        ><span class="icon" aria-hidden="true">🏠</span> Home</a
+      >
+      <a href="#translator" data-page="translator"
+        ><span class="icon" aria-hidden="true">🎥</span> Translator</a
+      >
+      <a href="#dictionary" data-page="dictionary"
+        ><span class="icon" aria-hidden="true">📚</span> Dictionary</a
+      >
+    </nav>
+    <div class="overlay" id="overlay"></div>
+
+    <!-- ── Home ── -->
+    <main class="page active" id="home">
+      <img src="/logo.png" alt="MudraPragyan.AI logo" class="home-logo" />
+      <div class="title-box">
+        <h1 class="home-title">MudraPragyan.AI</h1>
+        <p class="home-tagline">— Bridging Silence. Connecting Words —</p>
+      </div>
+
+      <div class="home-middle">
+        <div class="home-card" data-page="dictionary" role="button" tabindex="0">
+          <div class="card-icon" aria-hidden="true">📚</div>
+          <div class="card-title">Dictionary</div>
+          <div class="card-desc">
+            Browse ASL signs by category — alphabets, numbers, greetings, and more.
+          </div>
+          <button class="card-btn" data-page="dictionary" tabindex="-1">Open Dictionary</button>
+        </div>
+
+        <p class="about-box">
+          MudraPragyan.AI is an AI-powered website that translates ASL (American Sign Language) hand
+          gestures into text in real time using computer vision and machine learning. The platform
+          helps bridge communication gaps between sign language users and people unfamiliar with
+          sign language through an accessible and user-friendly interface.
+        </p>
+
+        <div class="home-card" data-page="translator" role="button" tabindex="0">
+          <div class="card-icon" aria-hidden="true">🎥</div>
+          <div class="card-title">Translator</div>
+          <div class="card-desc">
+            Use your webcam to translate ASL signs into text in real time.
+          </div>
+          <button class="card-btn" data-page="translator" tabindex="-1">Open Translator</button>
+        </div>
+      </div>
+    </main>
+
+    <!-- ── Translator ── -->
+    <main class="page" id="translator">
+      <div class="page-header">
+        <button class="back-btn" data-page="home">← Back</button>
+        <h1 class="page-title">🎥 ASL Translator</h1>
+      </div>
+
+      <div class="translator-grid">
+        <div class="cam-section">
+          <video id="video" autoplay playsinline muted></video>
+          <canvas id="canvas"></canvas>
+          <div class="cam-overlay" id="camOverlay">
+            <div class="cam-icon" aria-hidden="true">📷</div>
+            <p id="camMessage">Camera is off</p>
+            <button class="start-btn" id="startCamera">▶ Start Camera</button>
+          </div>
+          <div class="live-badge" id="liveBadge">● LIVE</div>
+        </div>
+
+        <div class="results-panel">
+          <p class="model-status" id="modelStatus" role="status">Loading model…</p>
+
+          <div class="letter-display">
+            <div class="letter-big" id="letterBig" aria-live="polite">?</div>
+            <div class="letter-label" id="letterLabel">Hold a sign in front of the camera</div>
+          </div>
+
+          <div id="debugPanel" class="debug-panel" hidden>
+            <div>Raw model: <span id="dbgRaw">—</span></div>
+            <div>After fix:&nbsp; <span id="dbgFixed">—</span></div>
+            <div>Confidence: <span id="dbgConf">—</span></div>
+            <div class="debug-hint">Press <b>D</b> to hide</div>
+          </div>
+          <button id="debugToggle" class="debug-btn">Debug mode (D)</button>
+
+          <div class="hold-bar-wrap">
+            <div class="hold-bar-label">
+              <span>Hold to add letter</span>
+              <span id="holdPct">0%</span>
+            </div>
+            <div class="hold-bar-track">
+              <div class="hold-bar-fill" id="holdBar"></div>
+            </div>
+          </div>
+
+          <div class="sentence-section">
+            <div class="sentence-label">Sentence Builder</div>
+            <div class="sentence-text empty" id="sentenceDisplay" aria-live="polite">
+              Detected letters appear here…
+            </div>
+            <div class="sentence-btns">
+              <button class="s-btn" id="addSpace">+ Space</button>
+              <button class="s-btn" id="backspace">⌫ Delete</button>
+              <button class="s-btn" id="clearSentence">🗑 Clear</button>
+            </div>
+            <button class="speak-btn" id="speakSentence">🔊 Speak Sentence</button>
+          </div>
+
+          <button id="startAccuracyTest" class="test-btn">◎ Test Model Accuracy</button>
+        </div>
+      </div>
+    </main>
+
+    <!-- ── Accuracy test modal ── -->
+    <div
+      id="testModal"
+      class="test-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="testHeading"
+    >
+      <div class="test-box">
+        <div id="testPhase1">
+          <div class="test-caption" id="testHeading">SIGN THIS LETTER</div>
+          <div id="testTarget" class="test-target">A</div>
+          <div id="testCountdown" class="test-countdown">3</div>
+          <div class="test-hint">Hold steady</div>
+          <div id="testProgress" class="test-progress">1 / 24</div>
+          <div class="test-live-wrap">
+            Detecting: <span id="testLive" class="test-live">—</span>
+          </div>
+          <button id="cancelTest" class="test-cancel">Cancel</button>
+        </div>
+
+        <div id="testPhase2" hidden>
+          <div class="test-caption">ACCURACY RESULTS</div>
+          <div id="testScore" class="test-score"></div>
+          <div id="testResults" class="test-results"></div>
+          <button id="closeTest" class="test-close">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Dictionary ── -->
+    <main class="page" id="dictionary">
+      <div class="page-header">
+        <button class="back-btn" data-page="home">← Back</button>
+        <h1 class="page-title">📚 ASL Dictionary</h1>
+      </div>
+      <div class="category-nav" id="categoryNav"></div>
+      <div class="dict-content" id="dictContent"></div>
+    </main>
+
+    <!-- ── Sign detail modal ── -->
+    <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalName">
+      <div class="modal-box">
+        <button class="modal-close" id="modalClose" aria-label="Close">✕</button>
+        <img class="modal-img" id="modalImg" src="" alt="" />
+        <div class="modal-name" id="modalName"></div>
+        <div class="modal-cat" id="modalCat"></div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

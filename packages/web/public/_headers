@@ -1,0 +1,21 @@
+# Cloudflare Pages header rules. Ignored by hosts that do not support `_headers`.
+#
+# Cross-origin isolation (COOP/COEP) is deliberately NOT set: MediaPipe's WASM has no
+# SharedArrayBuffer dependency, and ONNX Runtime Web runs single-threaded, so neither
+# needs it. Leaving it off keeps GitHub Pages viable as a mirror. See ADR 0002.
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  X-Frame-Options: DENY
+  # This app needs the camera and nothing else.
+  Permissions-Policy: camera=(self), microphone=(), geolocation=(), interest-cohort=()
+
+# Hashed build assets are immutable.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Model weights are versioned by filename once model packs land (ADR 0003). Until then
+# keep the window short so a redeploy is picked up.
+/model_weights.json
+  Cache-Control: public, max-age=3600, must-revalidate
