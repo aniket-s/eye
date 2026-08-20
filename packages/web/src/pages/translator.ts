@@ -25,7 +25,7 @@ const SENTENCE_PLACEHOLDER = 'Detected letters appear here…';
 const MODEL_URL = `${import.meta.env.BASE_URL}model_weights.json`;
 
 /** Dwell choices offered by the speed switch, in milliseconds. */
-const HOLD_SPEEDS: readonly number[] = [400, 800, 1500];
+const HOLD_SPEEDS: readonly number[] = [250, 800, 1500];
 const HOLD_SPEED_KEY = 'mudrapragyan.holdMs';
 
 function readStoredHoldMs(): number {

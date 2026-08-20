@@ -305,11 +305,11 @@ test.describe('dictionary', () => {
 test.describe('letter hold speed', () => {
   test('defaults to Fast and remembers a different choice across reloads', async ({ page }) => {
     await page.goto('/#translator');
-    await expect(page.locator('[data-speed="400"]')).toHaveClass(/is-active/);
+    await expect(page.locator('[data-speed="250"]')).toHaveClass(/is-active/);
 
     await page.locator('[data-speed="1500"]').click();
     await expect(page.locator('[data-speed="1500"]')).toHaveClass(/is-active/);
-    await expect(page.locator('[data-speed="400"]')).not.toHaveClass(/is-active/);
+    await expect(page.locator('[data-speed="250"]')).not.toHaveClass(/is-active/);
 
     await page.reload();
     await expect(page.locator('[data-speed="1500"]')).toHaveClass(/is-active/);
