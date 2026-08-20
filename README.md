@@ -262,7 +262,8 @@ These are **real and documented**, not hidden. Full detail in [`docs/AUDIT.md`](
   and J/Z need a `temporal-ctc` pack. Retraining on real recordings beats it.
 - **The in-app accuracy test is not a benchmark.** It measures one person in one session and
   cannot predict performance for anyone else (A3). Real evaluation lives in `training/`.
-- **Word categories in the Dictionary have no artwork.** The alphabet and numbers do.
+- **The Dictionary lists only the alphabet and numbers.** Word categories were removed
+  until a word-level pack and artwork exist to back them.
 - **Facial expression is not modelled.** ASL non-manual markers carry grammar, so signs
   that differ only by expression are not separable.
 

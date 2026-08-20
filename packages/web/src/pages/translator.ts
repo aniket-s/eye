@@ -18,6 +18,7 @@ import {
   type CameraSession,
 } from '../vision/camera.js';
 import { VisionLandmarker } from '../vision/landmarker.js';
+import { clearSkeleton, drawHandSkeleton } from '../vision/skeleton.js';
 import { RecognitionClient, type ReadyInfo } from '../workers/recognitionClient.js';
 
 const SENTENCE_PLACEHOLDER = 'Detected letters appear here…';
@@ -53,7 +54,10 @@ export class TranslatorPage {
   readonly #dbgPerf = requireElement('dbgPerf');
 
   readonly #sentence = new SentenceBuffer();
-  readonly #hold = new TimedHoldCommitDetector();
+  // Faster than the v1-parity defaults (667/1000 ms): with the v2 pack's smoothed,
+  // rejection-gated letters, a shorter dwell no longer double-commits, and the long
+  // cooldown was the main reason spelling felt slow.
+  readonly #hold = new TimedHoldCommitDetector({ holdMs: 400, cooldownMs: 400 });
   readonly #accuracyTest = new AccuracyTest();
   readonly #customSigns = new CustomSignsPanel();
   readonly #words: WordSuggestions;
@@ -61,6 +65,7 @@ export class TranslatorPage {
   readonly #landmarker = new VisionLandmarker();
 
   #recognition: RecognitionClient | null = null;
+  readonly #skeleton = requireElement<HTMLCanvasElement>('canvas');
   #camera: CameraSession | null = null;
   #starting = false;
   #debugVisible = false;
@@ -202,6 +207,7 @@ export class TranslatorPage {
     this.#camera?.stop();
     this.#camera = null;
     this.#landmarker.close();
+    clearSkeleton(this.#skeleton);
     this.#liveBadge.classList.remove('show');
     this.#camOverlay.style.display = '';
     this.#startButton.textContent = '▶ Start Camera';
@@ -253,6 +259,11 @@ export class TranslatorPage {
 
     const primary = selectPrimaryHand(frame.hands);
     const dominant = primary?.handedness ?? 'right';
+
+    // The same skeleton the recorder shows: tracking made visible. When it hugs the
+    // hand, the pipeline sees what the user thinks it sees; when it drops, the user
+    // knows to move into frame instead of blaming the model.
+    drawHandSkeleton(this.#skeleton, this.#video, frame.hands, primary, '#00d4c8');
 
     // Word signs are located relative to the body, so word mode needs the whole frame
     // — both hands and pose. Fingerspelling needs one hand, which is a third the payload.

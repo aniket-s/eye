@@ -260,7 +260,9 @@ test.describe('dictionary', () => {
   test('renders every category and its signs', async ({ page }) => {
     await page.goto('/#dictionary');
 
-    await expect(page.locator('.cat-pill')).toHaveCount(11);
+    // Alphabets and numbers only: the categories the recogniser can actually read.
+    // Word categories return with a word-level pack and artwork to show for them.
+    await expect(page.locator('.cat-pill')).toHaveCount(2);
     await expect(page.locator('#sec-alphabets .sign-card')).toHaveCount(26);
     await expect(page.locator('#sec-numbers .sign-card')).toHaveCount(11);
   });
@@ -298,15 +300,38 @@ test.describe('dictionary', () => {
     const image = page.locator('#sec-alphabets .sign-card img').first();
     await expect(image).toHaveAttribute('src', /alphabets\/a\.svg$/);
   });
+});
 
+test.describe('hand-tracking overlay', () => {
   /**
-   * Word categories still have no artwork — Phase 4 adds PopSign clips. Pinned so the
-   * gap is visible rather than forgotten.
+   * The Translator draws the same landmark skeleton the recorder shows, on a canvas
+   * carrying the same CSS mirror as the video. The fake camera feeds no hand, so what
+   * can be pinned here is the part that regresses silently: the canvas must adopt the
+   * feed's pixel grid and sit exactly over the video box, with a clean console.
    */
-  test('KNOWN GAP: word signs still have no artwork', async ({ page }) => {
-    await page.goto('/#dictionary');
-    const card = page.locator('#sec-greetings .sign-card').first();
-    await expect(card.locator('.placeholder')).toBeVisible({ timeout: 15_000 });
+  test('lays the skeleton canvas exactly over the live video', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+
+    await page.goto('/#translator');
+    await page.locator('#startCamera').click();
+    await expect(page.locator('#liveBadge')).toHaveClass(/show/, { timeout: 60_000 });
+
+    // First processed frame resizes the canvas from its 300x150 default to the feed.
+    await expect
+      .poll(() => page.locator('#canvas').evaluate((node) => (node as HTMLCanvasElement).width), {
+        timeout: 30_000,
+      })
+      .not.toBe(300);
+
+    const video = await page.locator('#video').boundingBox();
+    const canvas = await page.locator('#canvas').boundingBox();
+    expect(video).not.toBeNull();
+    expect(canvas).not.toBeNull();
+    for (const side of ['x', 'y', 'width', 'height'] as const) {
+      expect(Math.abs((canvas?.[side] ?? 0) - (video?.[side] ?? 0))).toBeLessThan(2);
+    }
+    expect(errors).toEqual([]);
   });
 });
 

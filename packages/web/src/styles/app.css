@@ -254,7 +254,15 @@
       width: 100%; display: block;
       transform: scaleX(-1);
     }
-    #canvas { display: none; }
+    /* Skeleton overlay: same pixel grid as the video, same CSS mirror, so raw
+       landmark coordinates line up with the mirrored preview. height:auto keeps the
+       canvas's intrinsic aspect ratio, which matches the video box exactly. */
+    #canvas {
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: auto;
+      transform: scaleX(-1);
+      pointer-events: none;
+    }
 
     .cam-overlay {
       position: absolute; inset: 0;

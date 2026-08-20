@@ -60,6 +60,6 @@ test.describe('dev server', () => {
     // Complements the CI step that builds the web app with core uncompiled: this proves
     // the same aliasing works when Vite is serving rather than bundling.
     await page.goto('/#dictionary');
-    await expect(page.locator('.cat-pill')).toHaveCount(11);
+    await expect(page.locator('.cat-pill')).toHaveCount(2);
   });
 });
