@@ -120,6 +120,34 @@ on first-load time — 11 MB uncompressed versus about 3.3 MB gzipped.
 
 ---
 
+## Option 4 — Your own server (Apache + Let's Encrypt)
+
+For an Ubuntu VPS — a DigitalOcean droplet, say — the repository ships a deploy script
+that does the whole thing: packages, Node 20, clone, a build that **refuses to ship
+without the MediaPipe models**, an atomic release swap, an Apache vhost carrying the
+same headers `_headers` declares (Apache ignores that file), and a Let's Encrypt
+certificate with auto-renewal. HTTPS is not optional — the camera API refuses to run
+without it.
+
+On the server, as root:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/aniket-s/eye/main/deploy/deploy-apache.sh
+EMAIL=you@example.com bash deploy-apache.sh   # first run: full setup + certificate
+bash deploy-apache.sh                         # every run after: pull, rebuild, swap
+```
+
+Before the first run: point a DNS A record for the domain at the server (the script
+checks and says so if you have not), and open ports 80/443 in any cloud firewall. The
+domain, branch and repository URL are environment variables — see the script header.
+Defaults target `eye.mozget.com` on `main`.
+
+Each deploy lands in `/var/www/eye/releases/<timestamp>` and goes live by swapping one
+symlink, so the site is never mid-copy; the previous releases stay put, and pointing
+the symlink back at one of them is the entire rollback.
+
+---
+
 ## Verifying a deployment
 
 1. Open the site over HTTPS.
