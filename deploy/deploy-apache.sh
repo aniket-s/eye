@@ -287,18 +287,24 @@ fi
 
 # ---------------------------------------------------------------- health
 log "Health checks against https://$DOMAIN"
-curl -fsS "https://$DOMAIN/" | grep -q 'MudraPragyan' || die "homepage did not serve the app"
+# Capture responses into variables before grepping. Piping curl straight into
+# `grep -q` under pipefail reports curl's SIGPIPE (exit 23) when grep finds its
+# match early and closes the pipe — a false FAILURE precisely when the site works.
+HOMEPAGE="$(curl -fsS "https://$DOMAIN/")" || die "homepage unreachable over HTTPS"
+printf '%s' "$HOMEPAGE" | grep -q 'MudraPragyan' || die "homepage did not serve the app"
 echo "  ✓ homepage serves the app"
-curl -fsS "https://$DOMAIN/models/asl-fingerspell/manifest.json" | grep -q '"labels"' ||
+MANIFEST="$(curl -fsS "https://$DOMAIN/models/asl-fingerspell/manifest.json")" ||
   die "model pack manifest is not being served — the Translator would fall back to the legacy model"
+printf '%s' "$MANIFEST" | grep -q '"labels"' ||
+  die "model pack manifest is malformed — the Translator would fall back to the legacy model"
 echo "  ✓ model pack manifest served"
 WASM_HEADERS="$(curl -fsSI "https://$DOMAIN/mediapipe/wasm/vision_wasm_internal.wasm")"
-echo "$WASM_HEADERS" | grep -qi '^content-type: application/wasm' ||
+printf '%s' "$WASM_HEADERS" | grep -qi '^content-type: application/wasm' ||
   die "WASM served with the wrong MIME type — the camera will not start"
 echo "  ✓ WASM served as application/wasm"
-if curl -fsS -o /dev/null -D - -H 'Accept-Encoding: gzip' \
-  "https://$DOMAIN/mediapipe/wasm/vision_wasm_internal.wasm" |
-  grep -qi '^content-encoding: gzip'; then
+GZIP_HEADERS="$(curl -fsS -o /dev/null -D - -H 'Accept-Encoding: gzip' \
+  "https://$DOMAIN/mediapipe/wasm/vision_wasm_internal.wasm")" || GZIP_HEADERS=""
+if printf '%s' "$GZIP_HEADERS" | grep -qi '^content-encoding: gzip'; then
   echo "  ✓ WASM compressed in transit"
 else
   warn "WASM not compressed — first loads will be ~3x slower, check mod_deflate"
