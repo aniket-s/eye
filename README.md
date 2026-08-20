@@ -2,13 +2,16 @@
 
 **Sign language recognition that runs entirely in your browser.** No server, no upload, no cost.
 
-> **Status: Phases 0–4 complete.** The application has been restructured from a single 1,325-line
+> **Status: Phases 0–5 complete.** The application has been restructured from a single 1,325-line
 > HTML file into a tested monorepo, the vision layer rebuilt on MediaPipe Tasks Vision, and a
 > complete training pipeline built with signer-independent evaluation and ONNX model packs.
 >
-> **You need to train a model.** The pipeline is tested end to end, but no real dataset can be
-> shipped with it. Until you train one, the app falls back to the v1 model and says so.
-> See [Training a model](#training-a-model) — it takes about half an hour.
+> **A trained pack is committed at `packages/web/public/models/asl-fingerspell`**, so the
+> Translator runs the v2 pipeline out of the box. Without a pack the app falls back to the
+> v1 legacy model, whose hand-tuned overrides systematically misread E, K, M, N, T and X
+> (`docs/AUDIT.md` §2) — if the status bar ever says “Legacy model”, the pack is missing
+> from the deployment. J and Z are motion letters: a static pack cannot represent them, a
+> `temporal-ctc` pack can — see [Training on real data](#training-on-real-data).
 
 ---
 
@@ -250,8 +253,9 @@ design, and its limits, are in [ADR 0005](docs/adr/0005-few-shot-custom-signs.md
 
 These are **real and documented**, not hidden. Full detail in [`docs/AUDIT.md`](docs/AUDIT.md).
 
-- **No trained model ships with the repo.** Until you train one the app runs the v1 fallback,
-  which has all the defects below. It says so on screen.
+- **The shipped pack is trained on simulated hands.** It replaces the v1 fallback (which
+  systematically misread E, K, M, N, T and X), but M, N, T and E remain its weakest letters
+  and J/Z need a `temporal-ctc` pack. Retraining on real recordings beats it.
 - **The in-app accuracy test is not a benchmark.** It measures one person in one session and
   cannot predict performance for anyone else (A3). Real evaluation lives in `training/`.
 - **Word categories in the Dictionary have no artwork.** The alphabet and numbers do.
