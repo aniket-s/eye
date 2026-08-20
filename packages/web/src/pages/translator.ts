@@ -54,10 +54,11 @@ export class TranslatorPage {
   readonly #dbgPerf = requireElement('dbgPerf');
 
   readonly #sentence = new SentenceBuffer();
-  // Faster than the v1-parity defaults (667/1000 ms): with the v2 pack's smoothed,
-  // rejection-gated letters, a shorter dwell no longer double-commits, and the long
-  // cooldown was the main reason spelling felt slow.
-  readonly #hold = new TimedHoldCommitDetector({ holdMs: 400, cooldownMs: 400 });
+  // A deliberate 3-second dwell, chosen from live use: a letter commits only after
+  // being held visibly steady for three full seconds, so nothing lands by accident
+  // while the hand is still travelling between signs. The progress bar makes the
+  // wait legible. One constant to change if a faster cadence is ever preferred.
+  readonly #hold = new TimedHoldCommitDetector({ holdMs: 3000, cooldownMs: 400 });
   readonly #accuracyTest = new AccuracyTest();
   readonly #customSigns = new CustomSignsPanel();
   readonly #words: WordSuggestions;
