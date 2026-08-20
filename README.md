@@ -213,7 +213,11 @@ source, redistributable.
 
 **Recording training data:** `npm run dev` then open `/recorder.html`. It captures hand
 landmarks only — never video — tagged with signer id and lighting/distance condition, and
-exports JSONL. Phase 2's signer-independent evaluation depends on those tags.
+exports JSONL. Phase 2's signer-independent evaluation depends on those tags. The page
+shows what it is doing while you record: a skeleton overlay and state badge make dropped
+tracking visible, each held sign is checked against the current model in real time
+(advisory — capture never waits for it), a wrong-hand warning guards the handedness tag,
+and every sample autosaves locally so a refresh or crash loses nothing.
 
 The `core` / `web` split is load-bearing, not cosmetic: because `core` cannot touch the DOM,
 every recognition decision is testable in Node. See [ADR 0004](docs/adr/0004-monorepo-and-pure-core.md).

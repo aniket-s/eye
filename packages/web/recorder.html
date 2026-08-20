@@ -56,11 +56,131 @@
         border-radius: 12px;
         padding: 1.25rem;
       }
+      .videoWrap {
+        position: relative;
+      }
       video {
+        display: block;
         width: 100%;
         border-radius: 10px;
         transform: scaleX(-1);
         background: #000;
+      }
+      #overlay {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border-radius: 10px;
+        transform: scaleX(-1);
+        pointer-events: none;
+      }
+      .stateBadge {
+        position: absolute;
+        top: 0.6rem;
+        left: 0.6rem;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.25rem 0.65rem;
+        border-radius: 999px;
+        background: rgba(5, 5, 16, 0.78);
+        border: 1px solid var(--border);
+        font-size: 0.72rem;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .stateBadge::before {
+        content: '';
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--muted);
+      }
+      .stateBadge[data-state='ready'],
+      .stateBadge[data-state='done'] {
+        color: var(--teal);
+      }
+      .stateBadge[data-state='ready']::before,
+      .stateBadge[data-state='done']::before {
+        background: var(--teal);
+      }
+      .stateBadge[data-state='waiting'],
+      .stateBadge[data-state='settling'] {
+        color: #f0a500;
+      }
+      .stateBadge[data-state='waiting']::before,
+      .stateBadge[data-state='settling']::before {
+        background: #f0a500;
+      }
+      .stateBadge[data-state='waiting']::before {
+        animation: pulse 1s infinite;
+      }
+      .stateBadge[data-state='capturing'] {
+        color: #f87171;
+      }
+      .stateBadge[data-state='capturing']::before {
+        background: #ef4444;
+        animation: pulse 1s infinite;
+      }
+      @keyframes pulse {
+        50% {
+          opacity: 0.3;
+        }
+      }
+      .promptRow {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 1.25rem;
+        min-height: 100px;
+      }
+      .promptRow img {
+        height: 88px;
+        width: 88px;
+        object-fit: contain;
+        background: #fff;
+        border-radius: 10px;
+        padding: 4px;
+      }
+      .bar {
+        height: 6px;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 3px;
+        margin-top: 0.6rem;
+        overflow: hidden;
+      }
+      #barFill {
+        height: 100%;
+        width: 0%;
+        background: var(--teal);
+        border-radius: 3px;
+        transition: width 120ms linear;
+      }
+      .live {
+        margin-top: 0.9rem;
+        padding: 0.6rem 0.8rem;
+        background: #0b0b18;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        font-size: 0.9rem;
+      }
+      .live .ok {
+        color: #22c55e;
+      }
+      .live .bad {
+        color: #f0a500;
+      }
+      .liveMeta {
+        color: var(--muted);
+        font-size: 0.75rem;
+        margin-top: 0.25rem;
+      }
+      #handWarn {
+        margin-top: 0.75rem;
+        margin-bottom: 0;
       }
       label {
         display: block;
@@ -168,7 +288,11 @@
 
     <div class="grid">
       <div class="panel">
-        <video id="video" autoplay playsinline muted></video>
+        <div class="videoWrap">
+          <video id="video" autoplay playsinline muted></video>
+          <canvas id="overlay"></canvas>
+          <div class="stateBadge" id="recState" data-state="off">Camera off</div>
+        </div>
         <div class="status" id="camStatus">Camera is off.</div>
         <div class="row">
           <button id="start">Start camera</button>
@@ -202,8 +326,23 @@
       </div>
 
       <div class="panel">
-        <div class="prompt" id="prompt">—</div>
+        <div class="promptRow">
+          <img id="refArt" alt="" hidden />
+          <div class="prompt" id="prompt">—</div>
+        </div>
         <div class="hint" id="hint">Press Start camera, then Record.</div>
+        <div class="bar"><div id="barFill"></div></div>
+
+        <div class="live" id="livePanel" hidden>
+          <div>Model sees <strong id="liveRead">—</strong> <span id="liveVerdict"></span></div>
+          <div class="liveMeta" id="liveModel"></div>
+          <div class="liveMeta">
+            Advisory only — capture does not pause for the model, and mismatches are expected when
+            you are recording data to fix a weak letter.
+          </div>
+        </div>
+
+        <div class="warn" id="handWarn" hidden></div>
 
         <div class="row">
           <button id="record" disabled>Record label</button>
@@ -213,6 +352,7 @@
         </div>
 
         <div class="status" id="status">0 samples collected.</div>
+        <div class="status" id="storeStatus"></div>
 
         <div class="counts">
           <table>
