@@ -118,6 +118,12 @@
       .stateBadge[data-state='waiting']::before {
         animation: pulse 1s infinite;
       }
+      .stateBadge[data-state='paused'] {
+        color: #f0a500;
+      }
+      .stateBadge[data-state='paused']::before {
+        background: #f0a500;
+      }
       .stateBadge[data-state='capturing'] {
         color: #f87171;
       }
@@ -263,6 +269,34 @@
         max-height: 240px;
         overflow-y: auto;
       }
+      .chips {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 0.25rem;
+      }
+      .chip {
+        flex: 1 1 0;
+        padding: 0.45rem 0.6rem;
+        background: transparent;
+        color: var(--muted);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        font: inherit;
+        font-size: 0.85rem;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .chip.is-active {
+        background: var(--purple);
+        color: #fff;
+      }
+      code {
+        background: #0b0b18;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.1rem 0.35rem;
+        font-size: 0.8em;
+      }
       .warn {
         background: rgba(240, 165, 0, 0.12);
         border: 1px solid rgba(240, 165, 0, 0.35);
@@ -303,6 +337,15 @@
 
         <label for="samples">Samples per label</label>
         <input id="samples" type="number" min="1" max="500" value="40" />
+
+        <label>Capture speed</label>
+        <!-- Spacing between captured frames. Slower captures span more natural hand
+             wobble per label, which is worth more than raw sample count. -->
+        <div class="chips" id="speedChips" role="group" aria-label="Capture speed">
+          <button type="button" class="chip" data-interval="60">Fast</button>
+          <button type="button" class="chip" data-interval="150">Normal</button>
+          <button type="button" class="chip" data-interval="300">Slow</button>
+        </div>
 
         <label for="hand">Hand</label>
         <select id="hand">
@@ -346,6 +389,7 @@
 
         <div class="row">
           <button id="record" disabled>Record label</button>
+          <button id="pause" class="secondary" disabled>⏸ Pause</button>
           <button id="skip" class="secondary" disabled>Skip</button>
           <button id="download" class="secondary" disabled>Download JSONL</button>
           <button id="clear" class="secondary">Clear</button>
@@ -353,6 +397,15 @@
 
         <div class="status" id="status">0 samples collected.</div>
         <div class="status" id="storeStatus"></div>
+        <p class="status">
+          Where the data goes: samples stay in this browser — autosaved locally, never uploaded.
+          <strong>Download JSONL</strong> saves them as a file; collect your files in a folder and
+          train with
+          <code
+            >python -m mudra_train.train --data ./recordings --out
+            packages/web/public/models/asl-fingerspell</code
+          >
+        </p>
 
         <div class="counts">
           <table>

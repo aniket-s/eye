@@ -64,11 +64,24 @@ test.describe('landmark recorder', () => {
 
     await expect(page.locator('#recState')).toHaveText('Camera off');
     await expect(page.locator('#record')).toBeDisabled();
+    await expect(page.locator('#pause')).toBeDisabled();
     await expect(page.locator('#download')).toBeDisabled();
     // The live model check only appears once the camera pipeline is up.
     await expect(page.locator('#livePanel')).toBeHidden();
     await expect(page.locator('#storeStatus')).toContainText('Autosave is on');
     expect(errors).toEqual([]);
+  });
+
+  test('capture speed defaults to Fast and remembers a change across reloads', async ({ page }) => {
+    await page.goto('/recorder.html');
+    await expect(page.locator('[data-interval="60"]')).toHaveClass(/is-active/);
+
+    await page.locator('[data-interval="300"]').click();
+    await expect(page.locator('[data-interval="300"]')).toHaveClass(/is-active/);
+    await expect(page.locator('[data-interval="60"]')).not.toHaveClass(/is-active/);
+
+    await page.reload();
+    await expect(page.locator('[data-interval="300"]')).toHaveClass(/is-active/);
   });
 
   test('explains how to fix missing vision models instead of failing silently', async ({

@@ -40,8 +40,13 @@ import {
 
 /** Frames to discard after the prompt appears, while the hand is still moving. */
 const SETTLE_FRAMES = 12;
-/** Minimum spacing between captures, so a burst is not 40 copies of one frame. */
-const CAPTURE_INTERVAL_MS = 60;
+/**
+ * Capture spacing choices, in milliseconds; a burst must not be 40 copies of one
+ * frame. Slower spacing spans more natural hand wobble per label, which is worth
+ * more to training than raw sample count.
+ */
+const CAPTURE_INTERVALS: readonly number[] = [60, 150, 300];
+const CAPTURE_INTERVAL_KEY = 'mudrapragyan.recorder.captureMs';
 /** Consecutive mismatching frames before the handedness warning shows (~1.5 s). */
 const HAND_WARN_FRAMES = 45;
 /** Where the classifier fallback lives; the worker prefers a model pack. */
@@ -55,7 +60,7 @@ const DOWNLOADED_KEY = 'mudrapragyan.recorder.downloaded';
  * `waiting` is the state that motivated all of this: a run is active but no hand is
  * being tracked, which used to look identical to everything working.
  */
-type RecorderState = 'off' | 'ready' | 'waiting' | 'settling' | 'capturing' | 'done';
+type RecorderState = 'off' | 'ready' | 'waiting' | 'settling' | 'capturing' | 'paused' | 'done';
 
 const STATE_LABEL: Record<RecorderState, string> = {
   off: 'Camera off',
@@ -63,6 +68,7 @@ const STATE_LABEL: Record<RecorderState, string> = {
   waiting: 'No hand detected',
   settling: 'Get ready…',
   capturing: '● REC',
+  paused: 'Paused',
   done: 'Run complete',
 };
 
@@ -87,6 +93,8 @@ const elements = {
   liveModel: requireElement('liveModel'),
   handWarn: requireElement('handWarn'),
   record: requireElement<HTMLButtonElement>('record'),
+  pause: requireElement<HTMLButtonElement>('pause'),
+  speedChips: requireElement('speedChips'),
   skip: requireElement<HTMLButtonElement>('skip'),
   download: requireElement<HTMLButtonElement>('download'),
   clear: requireElement<HTMLButtonElement>('clear'),
@@ -107,12 +115,24 @@ let lastCaptureMs = 0;
 let latestHand: HandLandmarks | null = null;
 
 let state: RecorderState = 'off';
+let paused = false;
+let captureIntervalMs = readStoredCaptureInterval();
 let recognition: RecognitionClient | null = null;
 let liveCheckUsable = false;
 let handMismatchFrames = 0;
 let downloadedCount = 0;
 let autosaveBroken = false;
 let clearArmTimer: number | null = null;
+
+function readStoredCaptureInterval(): number {
+  try {
+    const stored = Number(localStorage.getItem(CAPTURE_INTERVAL_KEY));
+    if (CAPTURE_INTERVALS.includes(stored)) return stored;
+  } catch {
+    // Storage unavailable; use the default.
+  }
+  return CAPTURE_INTERVALS[0] as number;
+}
 
 function parseLabels(): string[] {
   return elements.labels.value
@@ -129,6 +149,8 @@ function setState(next: RecorderState): void {
 
   if (next === 'waiting') {
     elements.hint.textContent = 'No hand detected — bring your hand into view.';
+  } else if (next === 'paused') {
+    elements.hint.textContent = 'Paused — press Resume to continue capturing.';
   } else if (next === 'settling') {
     elements.hint.textContent = 'Hold steady…';
   }
@@ -193,6 +215,9 @@ function advance(): void {
   const next = queue.shift();
   if (next === undefined) {
     current = null;
+    paused = false;
+    elements.pause.disabled = true;
+    elements.pause.textContent = '⏸ Pause';
     setState('done');
     elements.prompt.textContent = '✓';
     elements.hint.textContent = 'All labels recorded. Download, then change condition and repeat.';
@@ -331,6 +356,8 @@ function onFrame(video: HTMLVideoElement, timestampMs: number): void {
 
   if (current === null) {
     if (state !== 'off' && state !== 'done') setState('ready');
+  } else if (paused) {
+    setState('paused');
   } else if (latestHand === null) {
     setState('waiting');
   } else if (settleRemaining > 0) {
@@ -338,7 +365,7 @@ function onFrame(video: HTMLVideoElement, timestampMs: number): void {
     settleRemaining--;
   } else {
     setState('capturing');
-    if (timestampMs - lastCaptureMs >= CAPTURE_INTERVAL_MS) {
+    if (timestampMs - lastCaptureMs >= captureIntervalMs) {
       lastCaptureMs = timestampMs;
       capture(timestampMs);
     }
@@ -467,10 +494,42 @@ elements.record.addEventListener('click', () => {
   }
   target = Math.max(1, Number(elements.samples.value) || 1);
   queue = [...labels];
+  paused = false;
   elements.record.disabled = true;
+  elements.pause.disabled = false;
+  elements.pause.textContent = '⏸ Pause';
   elements.skip.disabled = false;
   advance();
 });
+
+/**
+ * Pause capturing without losing the run. Resuming re-settles for a few frames, so
+ * the first samples after a break are of a hand back in position, not travelling.
+ */
+elements.pause.addEventListener('click', () => {
+  paused = !paused;
+  elements.pause.textContent = paused ? '▶ Resume' : '⏸ Pause';
+  if (!paused) settleRemaining = SETTLE_FRAMES;
+});
+
+elements.speedChips.addEventListener('click', (event) => {
+  if (!(event.target instanceof HTMLElement)) return;
+  const interval = Number(event.target.dataset['interval']);
+  if (!CAPTURE_INTERVALS.includes(interval)) return;
+  captureIntervalMs = interval;
+  renderSpeedChips();
+  try {
+    localStorage.setItem(CAPTURE_INTERVAL_KEY, String(interval));
+  } catch {
+    // Private mode: the choice simply will not persist.
+  }
+});
+
+function renderSpeedChips(): void {
+  for (const chip of elements.speedChips.querySelectorAll<HTMLElement>('[data-interval]')) {
+    chip.classList.toggle('is-active', Number(chip.dataset['interval']) === captureIntervalMs);
+  }
+}
 
 elements.skip.addEventListener('click', () => advance());
 
@@ -525,4 +584,5 @@ elements.download.addEventListener('click', () => {
 });
 
 renderCounts();
+renderSpeedChips();
 void restore();
