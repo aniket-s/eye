@@ -15,6 +15,20 @@ export { MlpClassifier } from './model/mlp.js';
 
 export { SentenceBuffer, type SentenceListener } from './sentence/sentenceBuffer.js';
 export {
+  emptyFrame,
+  selectPrimaryHand,
+  type Handedness,
+  type HandObservation,
+  type VisionFrame,
+} from './vision/frame.js';
+export { LandmarkView, packLandmarks, HAND_BUFFER_LENGTH } from './vision/landmarkBuffer.js';
+
+export {
+  TimedHoldCommitDetector,
+  type TimedHoldCommitOptions,
+  type TimedHoldCommitResult,
+} from './temporal/timedHoldCommit.js';
+export {
   HoldCommitDetector,
   type HoldCommitOptions,
   type HoldCommitResult,
