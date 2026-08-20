@@ -6,3 +6,5 @@ test-results/
 package-lock.json
 packages/web/public/model_weights.json
 packages/web/src/styles/app.css
+packages/web/public/mediapipe/
+packages/web/public/models/

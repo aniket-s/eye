@@ -155,4 +155,55 @@ test.describe('debug overlay', () => {
     await page.locator('#debugToggle').click();
     await expect(panel).toBeHidden();
   });
+
+  test('shows a pipeline row for hands, pose and dropped frames', async ({ page }) => {
+    await page.goto('/#translator');
+    await page.keyboard.press('d');
+    await expect(page.locator('#dbgPerf')).toBeVisible();
+  });
+});
+
+test.describe('vision assets', () => {
+  /**
+   * The `.task` models are downloaded by `npm run setup:assets`, not committed. A
+   * fresh clone genuinely lacks them, so the failure has to be actionable rather
+   * than a raw 404 in the console.
+   */
+  test('explains how to fix missing vision models instead of failing silently', async ({
+    page,
+  }) => {
+    await page.route('**/models/*.task', (route) => route.fulfill({ status: 404 }));
+    await page.goto('/#translator');
+
+    await page.locator('#startCamera').click();
+    await expect(page.locator('#camMessage')).toContainText('npm run setup:assets', {
+      timeout: 30_000,
+    });
+  });
+
+  test('re-enables the start button after a failure so the user can retry', async ({ page }) => {
+    await page.route('**/models/*.task', (route) => route.fulfill({ status: 404 }));
+    await page.goto('/#translator');
+
+    const start = page.locator('#startCamera');
+    await start.click();
+    await expect(start).toBeEnabled({ timeout: 30_000 });
+    await expect(start).toHaveText('▶ Start Camera');
+  });
+});
+
+test.describe('recognition worker', () => {
+  /**
+   * The model is fetched and parsed inside the worker, which keeps the 2.5 MB JSON
+   * parse off the main thread (docs/AUDIT.md, M6 and A5).
+   */
+  test('loads the model in a worker, not on the main thread', async ({ page }) => {
+    const workerUrls: string[] = [];
+    page.on('worker', (worker) => workerUrls.push(worker.url()));
+
+    await page.goto('/#translator');
+    await expect(page.locator('#modelStatus')).toHaveClass(/ready/, { timeout: 30_000 });
+
+    expect(workerUrls.some((url) => url.includes('recognition'))).toBe(true);
+  });
 });

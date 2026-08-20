@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Landmark Recorder — MudraPragyan.AI</title>
+    <link rel="icon" href="/logo.png" type="image/png" />
+    <style>
+      :root {
+        --bg: #050510;
+        --card: #111127;
+        --teal: #00d4c8;
+        --purple: #8b5cf6;
+        --white: #f1f5f9;
+        --muted: #64748b;
+        --border: rgba(139, 92, 246, 0.25);
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
+        background: var(--bg);
+        color: var(--white);
+        padding: 1.5rem;
+        line-height: 1.6;
+      }
+      h1 {
+        font-size: 1.4rem;
+        margin-bottom: 0.25rem;
+      }
+      .sub {
+        color: var(--muted);
+        font-size: 0.9rem;
+        margin-bottom: 1.5rem;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: minmax(320px, 1fr) minmax(320px, 1fr);
+        gap: 1.5rem;
+        align-items: start;
+      }
+      @media (max-width: 860px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      .panel {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1.25rem;
+      }
+      video {
+        width: 100%;
+        border-radius: 10px;
+        transform: scaleX(-1);
+        background: #000;
+      }
+      label {
+        display: block;
+        font-size: 0.8rem;
+        color: var(--muted);
+        margin: 0.75rem 0 0.25rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      input,
+      select,
+      textarea {
+        width: 100%;
+        padding: 0.55rem 0.7rem;
+        background: #0b0b18;
+        color: var(--white);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        font: inherit;
+        font-size: 0.9rem;
+      }
+      button {
+        padding: 0.65rem 1.1rem;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--purple);
+        color: #fff;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: transparent;
+        color: var(--muted);
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .row {
+        display: flex;
+        gap: 0.6rem;
+        flex-wrap: wrap;
+        margin-top: 1rem;
+      }
+      .prompt {
+        font-size: 3.5rem;
+        font-weight: 700;
+        text-align: center;
+        line-height: 1.1;
+      }
+      .hint {
+        text-align: center;
+        color: var(--teal);
+        font-size: 0.9rem;
+        min-height: 1.5em;
+      }
+      .status {
+        font-size: 0.85rem;
+        color: var(--muted);
+        margin-top: 0.75rem;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.85rem;
+        margin-top: 0.75rem;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 0.3rem 0.4rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      }
+      th {
+        color: var(--muted);
+        font-weight: 500;
+      }
+      .counts {
+        max-height: 240px;
+        overflow-y: auto;
+      }
+      .warn {
+        background: rgba(240, 165, 0, 0.12);
+        border: 1px solid rgba(240, 165, 0, 0.35);
+        color: #f0a500;
+        padding: 0.7rem 0.9rem;
+        border-radius: 8px;
+        font-size: 0.85rem;
+        margin-bottom: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Landmark Recorder</h1>
+    <p class="sub">
+      Records hand landmarks for training. <strong>No video is captured or saved</strong> — only 21
+      numeric points per hand.
+    </p>
+
+    <div class="warn">
+      Public datasets will not match your users' webcams. Record across the conditions below —
+      varying them matters far more than raw sample count.
+    </div>
+
+    <div class="grid">
+      <div class="panel">
+        <video id="video" autoplay playsinline muted></video>
+        <div class="status" id="camStatus">Camera is off.</div>
+        <div class="row">
+          <button id="start">Start camera</button>
+        </div>
+
+        <label for="labels">Labels to record (comma separated)</label>
+        <input id="labels" value="A,B,C,D,E,F,G,H,I,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,none" />
+
+        <label for="samples">Samples per label</label>
+        <input id="samples" type="number" min="1" max="500" value="40" />
+
+        <label for="hand">Hand</label>
+        <select id="hand">
+          <option value="right">Right</option>
+          <option value="left">Left</option>
+        </select>
+
+        <label for="condition">Condition (recorded with every sample)</label>
+        <select id="condition">
+          <option value="normal">Normal — arm's length, even light</option>
+          <option value="near">Near — close to camera</option>
+          <option value="far">Far — arm fully extended</option>
+          <option value="angled">Angled — hand rotated 30–45°</option>
+          <option value="dim">Dim lighting</option>
+          <option value="backlit">Backlit — window behind you</option>
+          <option value="sleeve">Sleeve covering the wrist</option>
+        </select>
+
+        <label for="signer">Signer id (kept local; used for signer-independent splits)</label>
+        <input id="signer" placeholder="e.g. aniket-01" />
+      </div>
+
+      <div class="panel">
+        <div class="prompt" id="prompt">—</div>
+        <div class="hint" id="hint">Press Start camera, then Record.</div>
+
+        <div class="row">
+          <button id="record" disabled>Record label</button>
+          <button id="skip" class="secondary" disabled>Skip</button>
+          <button id="download" class="secondary" disabled>Download JSONL</button>
+          <button id="clear" class="secondary">Clear</button>
+        </div>
+
+        <div class="status" id="status">0 samples collected.</div>
+
+        <div class="counts">
+          <table>
+            <thead>
+              <tr>
+                <th>Label</th>
+                <th>Samples</th>
+                <th>Conditions</th>
+              </tr>
+            </thead>
+            <tbody id="counts"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/tools/recorder.ts"></script>
+  </body>
+</html>

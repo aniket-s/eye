@@ -58,6 +58,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Fetch MediaPipe assets
+        run: npm run setup:assets
+
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
@@ -84,6 +87,10 @@ jobs:
           cache: npm
 
       - run: npm ci
+
+      # Strict: a release must never ship without its vision models.
+      - name: Fetch MediaPipe assets
+        run: npm run setup:assets
 
       - name: Build
         run: npm run build

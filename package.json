@@ -2,7 +2,7 @@
   "name": "mudrapragyan",
   "version": "0.1.0",
   "private": true,
-  "description": "MudraPragyan.AI — privacy-preserving, on-device sign language recognition",
+  "description": "MudraPragyan.AI \u2014 privacy-preserving, on-device sign language recognition",
   "license": "MIT",
   "type": "module",
   "workspaces": [
@@ -13,7 +13,7 @@
   },
   "scripts": {
     "dev": "npm run dev --workspace @mudrapragyan/web",
-    "build": "npm run build --workspace @mudrapragyan/core && npm run build --workspace @mudrapragyan/web",
+    "build": "node scripts/setup-assets.mjs --allow-missing && npm run build --workspace @mudrapragyan/core && npm run build --workspace @mudrapragyan/web",
     "preview": "npm run preview --workspace @mudrapragyan/web",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -24,7 +24,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "e2e": "playwright test",
-    "verify": "npm run format:check && npm run lint && npm run typecheck && npm run test"
+    "verify": "npm run format:check && npm run lint && npm run typecheck && npm run test",
+    "setup:assets": "node scripts/setup-assets.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.12.0",

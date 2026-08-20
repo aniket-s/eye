@@ -21,14 +21,14 @@ Architecture: scikit-learn `MLPClassifier`, `63 → 256 → 256 → 128 → 27`,
 Input: 21 landmarks × (x, y, z), wrist-origin, divided by the 3D wrist→middle-MCP distance.
 Labels: 26 letters plus `space`.
 
-| id     | Finding                                                                                                                                                                                                     | Status     |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| **M1** | **No handedness invariance.** A left-handed signer produces a mirrored feature vector the model has never seen. Asserted by `landmarkVector.test.ts`.                                                       | 🔴 Phase 2 |
-| **M2** | **No rotation invariance.** Only translation and scale are normalised, so a 30° tilt moves the vector off-manifold. Asserted by `landmarkVector.test.ts`.                                                   | 🔴 Phase 2 |
-| **M3** | **`z` is included.** MediaPipe's normalised `z` is weakly calibrated and depth-ambiguous from a single view. Every top competition solution drops it.                                                       | 🔴 Phase 2 |
-| **M4** | **No negative class.** Only `space` exists, and it is suppressed before display. Every transitional pose between two letters is force-classified as a letter. The largest single source of spurious output. | 🔴 Phase 2 |
-| **M5** | **Confidence gate is ineffective.** `0.45` on an uncalibrated softmax. An overfit MLP with no negative class is _confidently_ wrong on off-manifold input, so this filters far less than it appears to.     | 🔴 Phase 2 |
-| **M6** | **2.5 MB of JSON for 115k parameters** (~22 bytes/param), parsed on the main thread. An int8 ONNX export is ~250 KB.                                                                                        | 🔴 Phase 2 |
+| id     | Finding                                                                                                                                                                                                     | Status                                              |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| **M1** | **No handedness invariance.** A left-handed signer produces a mirrored feature vector the model has never seen. Asserted by `landmarkVector.test.ts`.                                                       | 🔴 Phase 2                                          |
+| **M2** | **No rotation invariance.** Only translation and scale are normalised, so a 30° tilt moves the vector off-manifold. Asserted by `landmarkVector.test.ts`.                                                   | 🔴 Phase 2                                          |
+| **M3** | **`z` is included.** MediaPipe's normalised `z` is weakly calibrated and depth-ambiguous from a single view. Every top competition solution drops it.                                                       | 🔴 Phase 2                                          |
+| **M4** | **No negative class.** Only `space` exists, and it is suppressed before display. Every transitional pose between two letters is force-classified as a letter. The largest single source of spurious output. | 🔴 Phase 2                                          |
+| **M5** | **Confidence gate is ineffective.** `0.45` on an uncalibrated softmax. An overfit MLP with no negative class is _confidently_ wrong on off-manifold input, so this filters far less than it appears to.     | 🔴 Phase 2                                          |
+| **M6** | **2.5 MB of JSON for 115k parameters** (~22 bytes/param), parsed on the main thread. An int8 ONNX export is ~250 KB.                                                                                        | 🟡 Parse moved to the worker; size fixed in Phase 2 |
 
 ---
 
@@ -88,17 +88,21 @@ The instinct is right — J and Z are the only motion-defined letters — but:
 **Resolution:** CTC decoding in Phase 3 makes J and Z ordinary labels. The state machine is
 deleted entirely.
 
+**Partial mitigation (Phase 1):** the commit timer is now millisecond-based
+(`TimedHoldCommitDetector`), so _that_ part of the pipeline behaves identically at 15, 30 and
+60 fps. The J/Z state machine itself still counts frames — J2 remains open until Phase 3.
+
 ---
 
 ## 4. Vision layer (`V`)
 
-| id     | Finding                                                                                                                                                                                  | Status                                 |
-| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| **V1** | Uses `@mediapipe/hands` + `camera_utils`, **end-of-life since 1 March 2023**, maintained "on an as-is basis" with no fixes.                                                              | 🔴 Phase 1                             |
-| **V2** | Loaded **unpinned** from jsDelivr. An upstream publish could break production with no rollback.                                                                                          | 🟢 Versions pinned in `legacyHands.ts` |
-| **V3** | `maxNumHands: 1`. **Blocks the entire word-level roadmap** — most ASL words are two-handed.                                                                                              | 🔴 Phase 1                             |
-| **V4** | No pose or face landmarks. ASL non-manual markers (eyebrows, mouth morphemes) are grammatically load-bearing; the winning GISLR solution ranked **lips** among its top-2 feature groups. | 🔴 Phase 1                             |
-| **V5** | 1280×720 capture, detection every frame, no throttle. Burns the frame budget before the classifier runs.                                                                                 | 🔴 Phase 1                             |
+| id     | Finding                                                                                                                                                                                  | Status                                                      |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| **V1** | Uses `@mediapipe/hands` + `camera_utils`, **end-of-life since 1 March 2023**, maintained "on an as-is basis" with no fixes.                                                              | 🟢 Replaced by `@mediapipe/tasks-vision@1.0.1`, self-hosted |
+| **V2** | Loaded **unpinned** from jsDelivr. An upstream publish could break production with no rollback.                                                                                          | 🟢 Self-hosted and checksum-pinned via `models.lock.json`   |
+| **V3** | `maxNumHands: 1`. **Blocks the entire word-level roadmap** — most ASL words are two-handed.                                                                                              | 🟢 `numHands: 2`                                            |
+| **V4** | No pose or face landmarks. ASL non-manual markers (eyebrows, mouth morphemes) are grammatically load-bearing; the winning GISLR solution ranked **lips** among its top-2 feature groups. | 🟢 Upper-body pose captured                                 |
+| **V5** | 1280×720 capture, detection every frame, no throttle. Burns the frame budget before the classifier runs.                                                                                 | 🟢 640×480 + frame-drop backpressure                        |
 
 ---
 

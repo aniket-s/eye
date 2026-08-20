@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
@@ -14,6 +15,14 @@ export default defineConfig({
     sourcemap: true,
     // The 2.5 MB model JSON must stay a separate fetch, never inlined into JS.
     assetsInlineLimit: 4096,
+    rollupOptions: {
+      input: {
+        main: resolve(import.meta.dirname, 'index.html'),
+        // Developer tool for capturing training data. A separate entry point keeps
+        // it out of the main bundle entirely.
+        recorder: resolve(import.meta.dirname, 'recorder.html'),
+      },
+    },
   },
   server: {
     port: 5173,
