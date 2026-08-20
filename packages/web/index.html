@@ -135,6 +135,19 @@
             <div class="hold-bar-track">
               <div class="hold-bar-fill" id="holdBar"></div>
             </div>
+            <!-- How long a letter must be held before it commits. A visible control,
+                 because the right cadence is personal: presenters want deliberate,
+                 fluent spellers want fast. -->
+            <div
+              class="mode-switch speed-switch"
+              id="speedSwitch"
+              role="group"
+              aria-label="Letter hold speed"
+            >
+              <button type="button" class="mode-btn" data-speed="400">Fast</button>
+              <button type="button" class="mode-btn" data-speed="800">Medium</button>
+              <button type="button" class="mode-btn" data-speed="1500">Careful</button>
+            </div>
           </div>
 
           <div class="sentence-section">
