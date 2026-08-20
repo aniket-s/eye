@@ -18,6 +18,8 @@
  */
 import {
   ContinuousRecognizer,
+  IsolatedSignRecognizer,
+  VisionFrameView,
   HandshapeRecognizer,
   LandmarkView,
   LegacyRecognizer,
@@ -27,6 +29,7 @@ import {
 import type { Handedness, MlpWeights } from '@mudrapragyan/core';
 import { OnnxClassifier } from '../model/onnxClassifier.js';
 import { OnnxSequenceClassifier } from '../model/onnxSequenceClassifier.js';
+import { OnnxClipClassifier } from '../model/onnxClipClassifier.js';
 import { loadPack } from '../model/pack.js';
 import type { WorkerRequest, WorkerResponse } from './protocol.js';
 
@@ -34,9 +37,12 @@ const scope = self as unknown as DedicatedWorkerGlobalScope;
 
 /** Reused across frames so reading landmarks allocates nothing. */
 const view = new LandmarkView();
+/** Reused for word-mode frames, which carry both hands and pose. */
+const frameView = new VisionFrameView();
 
 let modern: HandshapeRecognizer | null = null;
 let continuous: ContinuousRecognizer | null = null;
+let words: IsolatedSignRecognizer | null = null;
 let legacy: LegacyRecognizer | null = null;
 
 function post(message: WorkerResponse): void {
@@ -52,6 +58,23 @@ function post(message: WorkerResponse): void {
  */
 async function init(fallbackModelUrl: string): Promise<void> {
   const pack = await loadPack();
+
+  if (pack !== null && pack.manifest.task === 'temporal-isolated') {
+    const classifier = await OnnxClipClassifier.create(pack.modelBytes, pack.manifest);
+    words = new IsolatedSignRecognizer(classifier, {
+      // Clip length is the model's, not the app's.
+      maxFrames: pack.manifest.input.windowFrames ?? 96,
+      minProbability: pack.manifest.thresholds.minProbability,
+      featureLength: pack.manifest.input.featureLength,
+    });
+    post({
+      type: 'ready',
+      labelCount: pack.manifest.labels.length,
+      pipeline: 'words',
+      packName: `${pack.manifest.name} v${pack.manifest.version}`,
+    });
+    return;
+  }
 
   if (pack !== null && pack.manifest.task === 'temporal-ctc') {
     const classifier = await OnnxSequenceClassifier.create(pack.modelBytes, pack.manifest);
@@ -113,10 +136,37 @@ scope.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
     case 'reset':
       modern?.reset();
       continuous?.reset();
+      words?.reset();
       legacy?.reset();
       return;
 
     case 'frame': {
+      if (words !== null) {
+        if (message.frame === undefined) return;
+        const frame = frameView.read(message.frame, message.timestampMs, message.handedness);
+        void words
+          .push(frame, message.handedness)
+          .then((result) => {
+            post({
+              type: 'word',
+              seq: message.seq,
+              timestampMs: message.timestampMs,
+              capturing: result.capturing,
+              sign: result.recognised?.label ?? null,
+              probability: result.recognised?.probability ?? 0,
+              alternatives: result.alternatives.map((a) => a.label),
+              motion: result.motion,
+            });
+          })
+          .catch((error: unknown) => {
+            post({
+              type: 'error',
+              message: error instanceof Error ? error.message : 'Inference failed.',
+            });
+          });
+        return;
+      }
+
       const landmarks = message.landmarks === null ? null : view.read(message.landmarks);
 
       if (continuous !== null) {

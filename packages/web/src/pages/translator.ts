@@ -92,7 +92,13 @@ export class TranslatorPage {
 
     this.#recognition = new RecognitionClient({
       onReady: (info) => {
-        if (info.pipeline === 'ctc') {
+        if (info.pipeline === 'words') {
+          this.#setStatus(`✅ ${info.packName} — ${info.labelCount} word signs`, 'ready');
+          // Word mode segments on motion, so there is no per-frame hold to display.
+          this.#holdBar.style.width = '0%';
+          this.#holdPct.textContent = '—';
+          this.#letterLabel.textContent = 'Sign a word, then pause';
+        } else if (info.pipeline === 'ctc') {
           this.#setStatus(`✅ ${info.packName} — continuous, ${info.labelCount} signs`, 'ready');
           // CTC decides commits itself, so the hold bar has nothing to show.
           this.#holdBar.style.width = '0%';
@@ -131,6 +137,14 @@ export class TranslatorPage {
           this.#dbgRaw.textContent = result.provisional || '—';
           this.#dbgFixed.textContent = result.committed.slice(-12) || '—';
           this.#dbgConf.textContent = `${(result.confidence * 100).toFixed(0)}% (ctc)`;
+        }
+      },
+      onWord: (result) => {
+        this.#renderWord(result);
+        if (this.#debugVisible) {
+          this.#dbgRaw.textContent = result.capturing ? 'capturing…' : 'idle';
+          this.#dbgFixed.textContent = result.sign ?? '—';
+          this.#dbgConf.textContent = `${(result.probability * 100).toFixed(0)}% · motion ${result.motion.toFixed(2)}`;
         }
       },
       onError: (message) => this.#setStatus(`⚠ ${message}`, 'error'),
@@ -192,14 +206,15 @@ export class TranslatorPage {
     const frame = this.#landmarker.detect(video, timestampMs);
     this.#handsSeen = frame.hands.length;
 
-    // The v1 model classifies one hand. Both are tracked from Phase 1 so that the
-    // word-level model in Phase 4 needs no further vision changes.
     const primary = selectPrimaryHand(frame.hands);
-    const submitted = this.#recognition.submit(
-      primary?.landmarks ?? null,
-      frame.timestampMs,
-      primary?.handedness ?? 'right',
-    );
+    const dominant = primary?.handedness ?? 'right';
+
+    // Word signs are located relative to the body, so word mode needs the whole frame
+    // — both hands and pose. Fingerspelling needs one hand, which is a third the payload.
+    const submitted =
+      this.#recognition.pipeline === 'words'
+        ? this.#recognition.submitFrame(frame, dominant)
+        : this.#recognition.submit(primary?.landmarks ?? null, frame.timestampMs, dominant);
 
     // A dropped frame still advances the commit timer, otherwise the hold bar would
     // stall on slow devices even though the user is holding the sign correctly.
@@ -264,6 +279,41 @@ export class TranslatorPage {
     }
 
     this.#letterBig.textContent = provisional.at(-1) ?? committed.at(-1) ?? NO_PREDICTION;
+  }
+
+  /**
+   * Render a recognised word sign.
+   *
+   * Runners-up are shown alongside: with hundreds of visually similar signs, an
+   * almost-right answer plus alternatives is more useful than a confident wrong one.
+   */
+  #renderWord(result: {
+    capturing: boolean;
+    sign: string | null;
+    probability: number;
+    alternatives: readonly string[];
+  }): void {
+    if (result.capturing) {
+      this.#letterBig.textContent = '•';
+      this.#letterLabel.textContent = 'Capturing sign…';
+      return;
+    }
+
+    if (result.sign === null) {
+      this.#letterLabel.textContent = 'Sign a word, then pause';
+      return;
+    }
+
+    this.#letterBig.textContent = result.sign.replace(/_/g, ' ');
+    this.#letterLabel.textContent =
+      result.alternatives.length > 0
+        ? `${(result.probability * 100).toFixed(0)}% · or ${result.alternatives
+            .slice(0, 2)
+            .map((a) => a.replace(/_/g, ' '))
+            .join(', ')}`
+        : `${(result.probability * 100).toFixed(0)}% confident`;
+
+    this.#sentence.append(`${result.sign.replace(/_/g, ' ')} `);
   }
 
   #renderSentence(text: string): void {

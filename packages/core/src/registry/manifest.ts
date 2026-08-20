@@ -85,8 +85,25 @@ export interface PackManifest {
   readonly attribution?: string;
 }
 
-/** The normalisation scheme this build of `core` implements. */
+/** Single-hand scheme, for fingerspelling packs. */
 export const NORMALISATION_SCHEME = 'centroid-rms-v2';
+
+/** Two-handed body-relative scheme, for word-level packs. */
+export const BODY_SCHEME = 'shoulder-frame-v1';
+
+/**
+ * Every normalisation scheme this build implements.
+ *
+ * A pack naming anything else was trained against feature extraction the runtime does
+ * not have, and must be refused rather than left to mispredict silently.
+ */
+export const SUPPORTED_SCHEMES: readonly string[] = [NORMALISATION_SCHEME, BODY_SCHEME];
+
+/** Which scheme each task expects, so a mismatched pair is caught too. */
+const SCHEME_FOR_HANDS: Record<number, string> = {
+  1: NORMALISATION_SCHEME,
+  2: BODY_SCHEME,
+};
 
 /**
  * Validate an untrusted manifest.
@@ -141,10 +158,18 @@ export function parseManifest(value: unknown): PackManifest {
   if (typeof normalisation !== 'string') {
     throw new TypeError('Manifest: `input.normalisation` must be a string');
   }
-  if (normalisation !== NORMALISATION_SCHEME) {
+  if (!SUPPORTED_SCHEMES.includes(normalisation)) {
     throw new TypeError(
-      `Manifest: normalisation "${normalisation}" does not match this build's ` +
-        `"${NORMALISATION_SCHEME}". Refusing to load rather than mispredict silently.`,
+      `Manifest: normalisation "${normalisation}" is not implemented by this build ` +
+        `(supported: ${SUPPORTED_SCHEMES.join(', ')}). ` +
+        'Refusing to load rather than mispredict silently.',
+    );
+  }
+  const expectedScheme = SCHEME_FOR_HANDS[hands];
+  if (expectedScheme !== undefined && normalisation !== expectedScheme) {
+    throw new TypeError(
+      `Manifest: a ${hands}-handed pack must use "${expectedScheme}", not "${normalisation}". ` +
+        'Refusing to load rather than mispredict silently.',
     );
   }
 

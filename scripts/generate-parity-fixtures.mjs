@@ -19,9 +19,11 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { normaliseHand } from '../packages/core/dist/features/normalise.js';
+import { normaliseBody } from '../packages/core/dist/features/normaliseBody.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const OUTPUT = join(ROOT, 'training/fixtures/normalisation.json');
+const BODY_OUTPUT = join(ROOT, 'training/fixtures/normalisation-body.json');
 
 /** Deterministic pseudo-random generator, so fixtures are reproducible. */
 function makeRandom(seed) {
@@ -91,3 +93,72 @@ await writeFile(
 );
 
 console.log(`Wrote ${cases.length} cases to ${OUTPUT.replace(`${ROOT}/`, '')}`);
+
+// ── Two-handed body-relative fixtures ──
+
+/** Seven upper-body pose points: nose, shoulders, elbows, wrists. */
+function makePose(random) {
+  const centreX = 0.4 + random() * 0.2;
+  const width = 0.18 + random() * 0.12;
+  return [
+    { x: centreX, y: 0.2 + random() * 0.05, z: 0 },
+    { x: centreX - width / 2, y: 0.36, z: 0 },
+    { x: centreX + width / 2, y: 0.36, z: 0 },
+    { x: centreX - width, y: 0.5, z: 0 },
+    { x: centreX + width, y: 0.5, z: 0 },
+    { x: centreX - width * 1.1, y: 0.63, z: 0 },
+    { x: centreX + width * 1.1, y: 0.63, z: 0 },
+  ];
+}
+
+const bodyRandom = makeRandom(773311);
+const bodyCases = [];
+
+for (let i = 0; i < 30; i++) {
+  const dominant = i % 3 === 0 ? 'left' : 'right';
+  const hasOther = i % 2 === 0;
+  const hasPose = i % 5 !== 0; // exercise the pose-less fallback too
+
+  const hands = [
+    {
+      handedness: dominant,
+      handednessScore: 0.9,
+      landmarks: makeHand(bodyRandom),
+    },
+  ];
+  if (hasOther) {
+    hands.push({
+      handedness: dominant === 'right' ? 'left' : 'right',
+      handednessScore: 0.9,
+      landmarks: makeHand(bodyRandom),
+    });
+  }
+
+  const pose = hasPose ? makePose(bodyRandom) : null;
+  const frame = { timestampMs: i, hands, pose };
+
+  bodyCases.push({
+    name: `body-${i}`,
+    dominant,
+    dominantHand: hands[0].landmarks.map((p) => [p.x, p.y, p.z]),
+    otherHand: hasOther ? hands[1].landmarks.map((p) => [p.x, p.y, p.z]) : null,
+    pose: pose === null ? null : pose.map((p) => [p.x, p.y, p.z]),
+    expected: Array.from(normaliseBody(frame, dominant)),
+  });
+}
+
+await writeFile(
+  BODY_OUTPUT,
+  `${JSON.stringify(
+    {
+      scheme: 'shoulder-frame-v1',
+      generatedBy: 'scripts/generate-parity-fixtures.mjs',
+      note: 'Produced by the TypeScript normaliser. Python must reproduce these to 1e-5.',
+      cases: bodyCases,
+    },
+    null,
+    2,
+  )}\n`,
+);
+
+console.log(`Wrote ${bodyCases.length} cases to ${BODY_OUTPUT.replace(`${ROOT}/`, '')}`);

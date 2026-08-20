@@ -24,6 +24,13 @@ export type WorkerRequest =
        * inferred later.
        */
       readonly handedness: 'left' | 'right';
+      /**
+       * Whole-frame payload: both hands plus upper-body pose.
+       *
+       * Only sent for word-level packs, which need hand position relative to the body.
+       * The fingerspelling pipelines use `landmarks` alone, which is a third the size.
+       */
+      readonly frame?: Float32Array;
     }
   | { readonly type: 'reset' };
 
@@ -38,8 +45,9 @@ export type WorkerResponse =
        * - `v1` — legacy MLP plus correction heuristics, used only when no pack exists.
        * - `v2` — static handshape pack with proper normalisation and rejection.
        * - `ctc` — continuous fingerspelling; no dwell timer, J and Z are ordinary labels.
+       * - `words` — isolated word signs; segments on motion, classifies each once.
        */
-      readonly pipeline: 'v1' | 'v2' | 'ctc';
+      readonly pipeline: 'v1' | 'v2' | 'ctc' | 'words';
       /** Pack name, when a v2 pack is installed. */
       readonly packName?: string;
     }
@@ -64,4 +72,18 @@ export type WorkerResponse =
       /** Current best guess for the tail, rendered greyed. */
       readonly provisional: string;
       readonly confidence: number;
+    }
+  | {
+      /** Emitted by `temporal-isolated` packs, once per completed sign. */
+      readonly type: 'word';
+      readonly seq: number;
+      readonly timestampMs: number;
+      /** True while a sign is being captured. */
+      readonly capturing: boolean;
+      /** Recognised sign, or null when nothing cleared the threshold. */
+      readonly sign: string | null;
+      readonly probability: number;
+      /** Runners-up, for a "did you mean" affordance. */
+      readonly alternatives: readonly string[];
+      readonly motion: number;
     };

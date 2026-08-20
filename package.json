@@ -30,7 +30,8 @@
     "train:synthetic": "cd training && PYTHONPATH=. python3 -m mudra_train.train --synthetic --out ../packages/web/public/models/asl-fingerspell",
     "test:python": "cd training && PYTHONPATH=. python3 -m pytest -q",
     "train:synthetic:ctc": "cd training && PYTHONPATH=. python3 -m mudra_train.train_ctc --synthetic --out ../packages/web/public/models/asl-fingerspell",
-    "diagrams": "cd training && PYTHONPATH=. python3 -m mudra_train.export.diagrams --out ../packages/web/public"
+    "diagrams": "cd training && PYTHONPATH=. python3 -m mudra_train.export.diagrams --out ../packages/web/public",
+    "train:synthetic:words": "cd training && PYTHONPATH=. python3 -m mudra_train.train_words --synthetic --out ../packages/web/public/models/asl-fingerspell"
   },
   "devDependencies": {
     "@eslint/js": "^9.12.0",

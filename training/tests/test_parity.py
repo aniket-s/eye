@@ -137,3 +137,79 @@ def test_rejects_bad_input() -> None:
         normalise_hand(np.zeros((21, 3)), "sideways")
     with pytest.raises(ValueError):
         normalise_batch(np.zeros((2, 20, 3)), np.array(["right", "right"]))
+
+
+# ── Two-handed body-relative normalisation ────────────────────────────────────
+
+BODY_FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "normalisation-body.json"
+
+#: Slightly looser than the single-hand tolerance: the shoulder-anchored frame divides
+#: by a smaller scale, so float32 rounding is proportionally larger.
+BODY_TOLERANCE = 1e-5
+
+
+@pytest.fixture(scope="module")
+def body_fixtures() -> dict:
+    if not BODY_FIXTURES.exists():
+        pytest.fail(f"{BODY_FIXTURES} is missing. Run `npm run fixtures:parity`.")
+    return json.loads(BODY_FIXTURES.read_text())
+
+
+def test_body_scheme_matches(body_fixtures: dict) -> None:
+    from mudra_train.features.normalise_body import BODY_NORMALISATION_SCHEME
+
+    assert body_fixtures["scheme"] == BODY_NORMALISATION_SCHEME
+
+
+def test_body_normalisation_matches_typescript(body_fixtures: dict) -> None:
+    """Every two-handed fixture reproduces the TypeScript output.
+
+    Covers one- and two-handed frames, left- and right-dominant signers, and the
+    pose-less fallback — each a path where the two implementations could drift apart.
+    """
+    from mudra_train.features.normalise_body import BODY_FEATURE_LENGTH, normalise_body_frame
+
+    failures = []
+    for case in body_fixtures["cases"]:
+        actual = normalise_body_frame(
+            np.array(case["dominantHand"]),
+            None if case["otherHand"] is None else np.array(case["otherHand"]),
+            None if case["pose"] is None else np.array(case["pose"]),
+            case["dominant"],
+        )
+        expected = np.array(case["expected"], dtype=np.float32)
+
+        assert actual.shape == (BODY_FEATURE_LENGTH,), case["name"]
+        delta = float(np.max(np.abs(actual - expected)))
+        if delta > BODY_TOLERANCE:
+            failures.append(f"{case['name']}: max delta {delta:.3e}")
+
+    assert not failures, "Python and TypeScript body normalisation disagree:\n" + "\n".join(
+        failures
+    )
+
+
+def test_body_presence_flags() -> None:
+    """Zeros alone cannot express "no hand"; the flags must."""
+    from mudra_train.features.normalise_body import (
+        DOMINANT_PRESENT,
+        OTHER_PRESENT,
+        normalise_body_frame,
+    )
+
+    rng = np.random.default_rng(31)
+    hand = rng.uniform(0.3, 0.7, size=(21, 3))
+
+    one = normalise_body_frame(hand, None, None, "right")
+    assert one[DOMINANT_PRESENT] == 1.0
+    assert one[OTHER_PRESENT] == 0.0
+
+    both = normalise_body_frame(hand, hand + 0.1, None, "right")
+    assert both[OTHER_PRESENT] == 1.0
+
+
+def test_body_rejects_bad_dominance() -> None:
+    from mudra_train.features.normalise_body import normalise_body_frame
+
+    with pytest.raises(ValueError):
+        normalise_body_frame(np.zeros((21, 3)), None, None, "either")

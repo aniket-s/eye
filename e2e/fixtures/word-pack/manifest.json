@@ -1,0 +1,43 @@
+{
+  "id": "synthetic-words",
+  "version": "1.0.0",
+  "name": "Synthetic Words (pipeline test)",
+  "language": "ase",
+  "task": "temporal-isolated",
+  "labels": [
+    "book",
+    "eat",
+    "family",
+    "friend",
+    "hello",
+    "help",
+    "home",
+    "more",
+    "name",
+    "no",
+    "please",
+    "sorry",
+    "thank_you",
+    "water",
+    "yes"
+  ],
+  "input": {
+    "featureLength": 100,
+    "hands": 2,
+    "normalisation": "shoulder-frame-v1",
+    "windowFrames": 96
+  },
+  "thresholds": {
+    "minProbability": 0.35,
+    "minMargin": 0.0,
+    "maxEnergy": null
+  },
+  "metrics": {
+    "macroF1": 1.0,
+    "worstSliceF1": 1.0,
+    "testSigners": 2
+  },
+  "modelFile": "model.onnx",
+  "sha256": "11ca4c341b43584df4cdf1f8d9705b3967a34ba72593bece797190b7054707b2",
+  "licence": "synthetic (no real data)"
+}

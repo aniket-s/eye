@@ -12,6 +12,28 @@ export { MIN_SCALE, distance2d, distance3d, palmScale2d, palmScale3d } from './m
 
 export { landmarksToVector, LANDMARK_VECTOR_LENGTH } from './features/landmarkVector.js';
 export { normaliseHand, mirrorHand, FEATURE_LENGTH } from './features/normalise.js';
+export {
+  normaliseBody,
+  BODY_FEATURE_LENGTH,
+  BODY_LAYOUT,
+  BODY_NORMALISATION_SCHEME,
+  POSE_POINTS,
+} from './features/normaliseBody.js';
+
+export {
+  SignSegmenter,
+  type SignSegmenterOptions,
+  type SegmenterState,
+  type SegmenterUpdate,
+} from './temporal/signSegmenter.js';
+
+export {
+  IsolatedSignRecognizer,
+  type IsolatedClassifier,
+  type IsolatedSignRecognizerOptions,
+  type IsolatedSignResult,
+  type SignPrediction,
+} from './pipeline/isolatedSignRecognizer.js';
 
 export {
   energyScore,
@@ -28,6 +50,8 @@ export {
   parseManifest,
   packRef,
   NORMALISATION_SCHEME,
+  BODY_SCHEME,
+  SUPPORTED_SCHEMES,
   type PackManifest,
   type PackTask,
   type PackInput,
@@ -44,6 +68,7 @@ export {
   type VisionFrame,
 } from './vision/frame.js';
 export { LandmarkView, packLandmarks, HAND_BUFFER_LENGTH } from './vision/landmarkBuffer.js';
+export { packVisionFrame, VisionFrameView, FRAME_BUFFER_LENGTH } from './vision/framePacking.js';
 
 export {
   TimedHoldCommitDetector,

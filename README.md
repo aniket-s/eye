@@ -2,7 +2,7 @@
 
 **Sign language recognition that runs entirely in your browser.** No server, no upload, no cost.
 
-> **Status: Phases 0–3 complete.** The application has been restructured from a single 1,325-line
+> **Status: Phases 0–4 complete.** The application has been restructured from a single 1,325-line
 > HTML file into a tested monorepo, the vision layer rebuilt on MediaPipe Tasks Vision, and a
 > complete training pipeline built with signer-independent evaluation and ONNX model packs.
 >
@@ -56,18 +56,30 @@ python -m mudra_train.train --data ./recordings --out ../packages/web/public/mod
 **Best quality — FSboard.** 3M+ characters from 147 Deaf signers, CC BY 4.0. Needs a free
 Kaggle account. Point `--data` at the extracted landmarks.
 
-**Continuous fingerspelling** (no pausing between letters, and J/Z work) uses the CTC
-model instead:
+Three model types are available, and the app switches mode automatically based on which
+pack is installed:
+
+| Pack                | Trainer       | What it does                                         |
+| ------------------- | ------------- | ---------------------------------------------------- |
+| `static-handshape`  | `train`       | One letter at a time, hold to commit                 |
+| `temporal-ctc`      | `train_ctc`   | Continuous fingerspelling — no pausing, J and Z work |
+| `temporal-isolated` | `train_words` | Word signs, two-handed, segmented on motion          |
 
 ```bash
+# Continuous fingerspelling
 python -m mudra_train.train_ctc --data ./recordings --out ../packages/web/public/models/asl-fingerspell
+
+# Word signs, from PopSign or GISLR landmark parquet
+python -m mudra_train.train_words --index /data/popsign/train.csv --data-root /data/popsign \
+    --out ../packages/web/public/models/asl-fingerspell
 ```
 
 **Just checking the pipeline runs:**
 
 ```bash
-npm run train:synthetic        # static model, procedural fixtures — NOT usable
-npm run train:synthetic:ctc    # continuous model, same caveat
+npm run train:synthetic          # static model, procedural fixtures — NOT usable
+npm run train:synthetic:ctc      # continuous fingerspelling, same caveat
+npm run train:synthetic:words    # word signs, same caveat
 ```
 
 Training always evaluates on **held-out signers** and reports per-slice scores, so a model
@@ -110,8 +122,9 @@ These are **real and documented**, not hidden. Full detail in [`docs/AUDIT.md`](
 - **The Dictionary shows no images.** None of the referenced files exist (A1).
 - **The in-app accuracy test is not a benchmark.** It measures one person in one session and
   cannot predict performance for anyone else (A3). Real evaluation lives in `training/`.
-- **Word-level signs are not supported.** Fingerspelling only, until Phase 4.
 - **Word categories in the Dictionary have no artwork.** The alphabet and numbers do.
+- **Facial expression is not modelled.** ASL non-manual markers carry grammar, so signs
+  that differ only by expression are not separable.
 
 Fixed once a pack is installed: left-handed signers (M1), depth noise (M3), spurious
 letters during transitions (M4, M5), the 2.5 MB model download (M6 — now ~520 KB int8),

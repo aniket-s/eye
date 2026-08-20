@@ -21,6 +21,10 @@ const FIXTURES = join(HERE, 'fixtures', 'pack');
 const manifest = readFileSync(join(FIXTURES, 'manifest.json'), 'utf8');
 const modelBytes = readFileSync(join(FIXTURES, 'model.onnx'));
 
+const WORD_FIXTURES = join(HERE, 'fixtures', 'word-pack');
+const wordManifest = readFileSync(join(WORD_FIXTURES, 'manifest.json'), 'utf8');
+const wordModelBytes = readFileSync(join(WORD_FIXTURES, 'model.onnx'));
+
 const CTC_FIXTURES = join(HERE, 'fixtures', 'ctc-pack');
 const ctcManifest = readFileSync(join(CTC_FIXTURES, 'manifest.json'), 'utf8');
 const ctcModelBytes = readFileSync(join(CTC_FIXTURES, 'model.onnx'));
@@ -169,6 +173,75 @@ test.describe('continuous fingerspelling (CTC)', () => {
     page.on('pageerror', (error) => errors.push(error.message));
 
     await installCtcPack(page);
+    await page.goto('/#translator');
+    await expect(page.locator('#modelStatus')).toHaveClass(/ready/, { timeout: 60_000 });
+
+    expect(errors).toEqual([]);
+  });
+});
+
+test.describe('word-level signs', () => {
+  async function installWordPack(page: Page): Promise<void> {
+    await page.route('**/models/asl-fingerspell/manifest.json', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: wordManifest }),
+    );
+    await page.route('**/models/asl-fingerspell/model.onnx', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/octet-stream', body: wordModelBytes }),
+    );
+  }
+
+  test('loads a temporal-isolated pack and reports word mode', async ({ page }) => {
+    await installWordPack(page);
+    await page.goto('/#translator');
+
+    const status = page.locator('#modelStatus');
+    await expect(status).toHaveClass(/ready/, { timeout: 60_000 });
+    await expect(status).toContainText('word signs');
+  });
+
+  /**
+   * Word mode segments on motion and classifies each completed sign once, so there is
+   * no per-frame hold to display — a different interaction model from both
+   * fingerspelling pipelines.
+   */
+  test('shows no hold progress, since it segments on motion instead', async ({ page }) => {
+    await installWordPack(page);
+    await page.goto('/#translator');
+    await expect(page.locator('#modelStatus')).toHaveClass(/ready/, { timeout: 60_000 });
+
+    await expect(page.locator('#holdPct')).toHaveText('—');
+    await expect(page.locator('#letterLabel')).toContainText('Sign a word, then pause');
+  });
+
+  test('reports the words pipeline in the debug overlay', async ({ page }) => {
+    await installWordPack(page);
+    await page.goto('/#translator');
+    await expect(page.locator('#modelStatus')).toHaveClass(/ready/, { timeout: 60_000 });
+
+    await page.keyboard.press('d');
+    await expect(page.locator('#dbgPerf')).toContainText('words');
+  });
+
+  /**
+   * The two-handed model uses a different feature scheme from fingerspelling. Its
+   * manifest declares `shoulder-frame-v1`, and the loader must accept that as readily
+   * as the single-hand scheme while still rejecting anything unknown.
+   */
+  test('accepts the two-handed normalisation scheme', async ({ page }) => {
+    const parsed = JSON.parse(wordManifest) as { input: { normalisation: string; hands: number } };
+    expect(parsed.input.normalisation).toBe('shoulder-frame-v1');
+    expect(parsed.input.hands).toBe(2);
+
+    await installWordPack(page);
+    await page.goto('/#translator');
+    await expect(page.locator('#modelStatus')).toHaveClass(/ready/, { timeout: 60_000 });
+  });
+
+  test('initialises the clip model without console errors', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+
+    await installWordPack(page);
     await page.goto('/#translator');
     await expect(page.locator('#modelStatus')).toHaveClass(/ready/, { timeout: 60_000 });
 

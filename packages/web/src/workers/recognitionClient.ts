@@ -1,4 +1,11 @@
-import { HAND_BUFFER_LENGTH, packLandmarks, type HandLandmarks } from '@mudrapragyan/core';
+import {
+  FRAME_BUFFER_LENGTH,
+  HAND_BUFFER_LENGTH,
+  packLandmarks,
+  packVisionFrame,
+  type HandLandmarks,
+  type VisionFrame,
+} from '@mudrapragyan/core';
 import type { WorkerRequest, WorkerResponse } from './protocol.js';
 
 /**
@@ -24,8 +31,18 @@ export interface RecognitionResultMessage {
 
 export interface ReadyInfo {
   readonly labelCount: number;
-  readonly pipeline: 'v1' | 'v2' | 'ctc';
+  readonly pipeline: 'v1' | 'v2' | 'ctc' | 'words';
   readonly packName?: string;
+}
+
+/** Emitted by word-level (isolated) packs. */
+export interface WordMessage {
+  readonly timestampMs: number;
+  readonly capturing: boolean;
+  readonly sign: string | null;
+  readonly probability: number;
+  readonly alternatives: readonly string[];
+  readonly motion: number;
 }
 
 /** Emitted by continuous (CTC) packs. */
@@ -40,6 +57,7 @@ export interface RecognitionClientOptions {
   readonly onReady: (info: ReadyInfo) => void;
   readonly onResult: (result: RecognitionResultMessage) => void;
   readonly onContinuous?: (result: ContinuousMessage) => void;
+  readonly onWord?: (result: WordMessage) => void;
   readonly onError: (message: string) => void;
 }
 
@@ -48,9 +66,10 @@ export class RecognitionClient {
   readonly #options: RecognitionClientOptions;
   /** Reused so submitting a frame allocates nothing beyond the transfer itself. */
   #scratch = new Float32Array(HAND_BUFFER_LENGTH);
+  #frameScratch = new Float32Array(FRAME_BUFFER_LENGTH);
 
   #ready = false;
-  #pipeline: 'v1' | 'v2' | 'ctc' = 'v1';
+  #pipeline: 'v1' | 'v2' | 'ctc' | 'words' = 'v1';
   #inFlight = false;
   #seq = 0;
   #droppedFrames = 0;
@@ -77,7 +96,7 @@ export class RecognitionClient {
   }
 
   /** Which recognition pipeline the worker settled on. */
-  get pipeline(): 'v1' | 'v2' | 'ctc' {
+  get pipeline(): 'v1' | 'v2' | 'ctc' | 'words' {
     return this.#pipeline;
   }
 
@@ -142,6 +161,40 @@ export class RecognitionClient {
     return true;
   }
 
+  /**
+   * Submit a whole frame, for word-level packs.
+   *
+   * Carries both hands and pose. Word signs are located relative to the body, so
+   * sending only the primary hand would discard part of the meaning.
+   *
+   * @returns `true` if the frame was sent, `false` if it was dropped.
+   */
+  submitFrame(frame: VisionFrame, dominant: 'left' | 'right'): boolean {
+    if (!this.#ready) return false;
+    if (this.#inFlight) {
+      this.#droppedFrames++;
+      return false;
+    }
+
+    this.#seq++;
+    this.#inFlight = true;
+
+    const buffer = packVisionFrame(frame, dominant, this.#frameScratch);
+    this.#frameScratch = new Float32Array(FRAME_BUFFER_LENGTH);
+    this.#worker.postMessage(
+      {
+        type: 'frame',
+        seq: this.#seq,
+        timestampMs: frame.timestampMs,
+        landmarks: null,
+        handedness: dominant,
+        frame: buffer,
+      } satisfies WorkerRequest,
+      [buffer.buffer],
+    );
+    return true;
+  }
+
   /** Shut the worker down. */
   terminate(): void {
     this.#worker.terminate();
@@ -168,6 +221,19 @@ export class RecognitionClient {
         this.#ready = false;
         this.#inFlight = false;
         this.#options.onError(message.message);
+        return;
+      case 'word':
+        this.#inFlight = false;
+        if (message.seq !== this.#seq) return;
+        this.#processedFrames++;
+        this.#options.onWord?.({
+          timestampMs: message.timestampMs,
+          capturing: message.capturing,
+          sign: message.sign,
+          probability: message.probability,
+          alternatives: message.alternatives,
+          motion: message.motion,
+        });
         return;
       case 'continuous':
         this.#inFlight = false;

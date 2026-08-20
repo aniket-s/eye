@@ -67,12 +67,44 @@ describe('parseManifest', () => {
    * extraction than the runtime implements would not error — it would quietly
    * mispredict, which is the hardest class of ML bug to notice.
    */
-  it('REFUSES a pack whose normalisation scheme does not match this build', () => {
+  it('REFUSES a pack whose normalisation scheme this build does not implement', () => {
     expect(() =>
       parseManifest(
         validManifest({ input: { featureLength: 42, hands: 1, normalisation: 'wrist-scaled-v1' } }),
       ),
     ).toThrow(/Refusing to load rather than mispredict silently/);
+  });
+
+  it('accepts the two-handed scheme for a word-level pack', () => {
+    const manifest = parseManifest(
+      validManifest({
+        task: 'temporal-isolated',
+        input: { featureLength: 100, hands: 2, normalisation: 'shoulder-frame-v1' },
+      }),
+    );
+    expect(manifest.input.hands).toBe(2);
+  });
+
+  /**
+   * Both schemes are valid, but not interchangeably: a one-handed pack claiming the
+   * body-relative scheme would be fed features of the wrong length and shape.
+   */
+  it('REFUSES a scheme that does not match the hand count', () => {
+    expect(() =>
+      parseManifest(
+        validManifest({
+          input: { featureLength: 100, hands: 1, normalisation: 'shoulder-frame-v1' },
+        }),
+      ),
+    ).toThrow(/must use "centroid-rms-v2"/);
+
+    expect(() =>
+      parseManifest(
+        validManifest({
+          input: { featureLength: 42, hands: 2, normalisation: NORMALISATION_SCHEME },
+        }),
+      ),
+    ).toThrow(/must use "shoulder-frame-v1"/);
   });
 
   it('rejects a nonsensical feature length', () => {
