@@ -26,6 +26,8 @@ npm run dev        # http://localhost:5173
 
 Camera access needs a secure context, so use `localhost` or HTTPS.
 
+**Deploying?** See [`docs/DEPLOY.md`](docs/DEPLOY.md).
+
 ## Layout
 
 ```
@@ -64,7 +66,7 @@ These are **real and documented**, not hidden. Full detail in [`docs/AUDIT.md`](
 | Phase | Delivers                                                                                                                                                           | Status  |
 | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- |
 | **0** | Monorepo, tests, CI, audit, privacy statement — behaviour unchanged                                                                                                | ✅ Done |
-| **1** | MediaPipe Tasks Vision, two hands, pose, Web Worker                                                                                                                | Next    |
+| **1** | MediaPipe Tasks Vision, two hands, pose, Web Worker                                                                                                                | 🟡 ~35% |
 | **2** | Retrained model with handedness/rotation invariance and a `none` class. **`geometricFix` deleted.** Signer-independent evaluation as a CI gate. Dictionary images. |         |
 | **3** | Continuous fingerspelling via CTC. J/Z state machine and dwell timer removed.                                                                                      |         |
 | **4** | 250 word-level signs, two-handed                                                                                                                                   |         |
