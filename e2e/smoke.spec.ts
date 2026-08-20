@@ -302,6 +302,39 @@ test.describe('dictionary', () => {
   });
 });
 
+test.describe('hand-tracking overlay', () => {
+  /**
+   * The Translator draws the same landmark skeleton the recorder shows, on a canvas
+   * carrying the same CSS mirror as the video. The fake camera feeds no hand, so what
+   * can be pinned here is the part that regresses silently: the canvas must adopt the
+   * feed's pixel grid and sit exactly over the video box, with a clean console.
+   */
+  test('lays the skeleton canvas exactly over the live video', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+
+    await page.goto('/#translator');
+    await page.locator('#startCamera').click();
+    await expect(page.locator('#liveBadge')).toHaveClass(/show/, { timeout: 60_000 });
+
+    // First processed frame resizes the canvas from its 300x150 default to the feed.
+    await expect
+      .poll(() => page.locator('#canvas').evaluate((node) => (node as HTMLCanvasElement).width), {
+        timeout: 30_000,
+      })
+      .not.toBe(300);
+
+    const video = await page.locator('#video').boundingBox();
+    const canvas = await page.locator('#canvas').boundingBox();
+    expect(video).not.toBeNull();
+    expect(canvas).not.toBeNull();
+    for (const side of ['x', 'y', 'width', 'height'] as const) {
+      expect(Math.abs((canvas?.[side] ?? 0) - (video?.[side] ?? 0))).toBeLessThan(2);
+    }
+    expect(errors).toEqual([]);
+  });
+});
+
 test.describe('sentence builder', () => {
   test('adds, deletes and clears text', async ({ page }) => {
     await page.goto('/#translator');

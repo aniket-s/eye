@@ -3,6 +3,7 @@ import type { HandObservation } from '@mudrapragyan/core';
 import { requireElement } from '../dom.js';
 import { describeCameraError, isSecureContextForCamera, startCamera } from '../vision/camera.js';
 import { VisionLandmarker } from '../vision/landmarker.js';
+import { drawHandSkeleton } from '../vision/skeleton.js';
 import { RecognitionClient } from '../workers/recognitionClient.js';
 import {
   clearSamples,
@@ -47,31 +48,6 @@ const HAND_WARN_FRAMES = 45;
 const MODEL_URL = `${import.meta.env.BASE_URL}model_weights.json`;
 /** Remembers how many samples the last download covered, across sessions. */
 const DOWNLOADED_KEY = 'mudrapragyan.recorder.downloaded';
-
-/** MediaPipe hand topology, for the overlay. */
-const HAND_CONNECTIONS: ReadonlyArray<readonly [number, number]> = [
-  [0, 1],
-  [1, 2],
-  [2, 3],
-  [3, 4],
-  [0, 5],
-  [5, 6],
-  [6, 7],
-  [7, 8],
-  [5, 9],
-  [9, 10],
-  [10, 11],
-  [11, 12],
-  [9, 13],
-  [13, 14],
-  [14, 15],
-  [15, 16],
-  [13, 17],
-  [17, 18],
-  [18, 19],
-  [19, 20],
-  [0, 17],
-];
 
 /**
  * What the recorder is doing right now, rendered as the badge on the video.
@@ -238,41 +214,8 @@ function advance(): void {
 
 /** Skeleton overlay: the trainer can see exactly what the landmarker sees, or doesn't. */
 function drawOverlay(hands: readonly HandObservation[], primary: HandObservation | null): void {
-  const canvas = elements.overlay;
-  const width = elements.video.videoWidth;
-  const height = elements.video.videoHeight;
-  if (width === 0 || height === 0) return;
-  if (canvas.width !== width || canvas.height !== height) {
-    canvas.width = width;
-    canvas.height = height;
-  }
-
-  const context = canvas.getContext('2d');
-  if (context === null) return;
-  context.clearRect(0, 0, width, height);
-
   const accent = state === 'capturing' ? '#22c55e' : state === 'settling' ? '#f0a500' : '#00d4c8';
-  for (const hand of hands) {
-    const colour = hand === primary ? accent : 'rgba(241, 245, 249, 0.35)';
-    context.strokeStyle = colour;
-    context.fillStyle = colour;
-    context.lineWidth = 2;
-
-    for (const [from, to] of HAND_CONNECTIONS) {
-      const a = hand.landmarks[from];
-      const b = hand.landmarks[to];
-      if (a === undefined || b === undefined) continue;
-      context.beginPath();
-      context.moveTo(a.x * width, a.y * height);
-      context.lineTo(b.x * width, b.y * height);
-      context.stroke();
-    }
-    for (const point of hand.landmarks) {
-      context.beginPath();
-      context.arc(point.x * width, point.y * height, 3, 0, Math.PI * 2);
-      context.fill();
-    }
-  }
+  drawHandSkeleton(elements.overlay, elements.video, hands, primary, accent);
 }
 
 /**
