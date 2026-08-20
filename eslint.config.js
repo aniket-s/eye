@@ -41,9 +41,29 @@ export default tseslint.config(
     rules: {
       '@typescript-eslint/no-non-null-assertion': 'off', // hot loops index fixed-length arrays
       '@typescript-eslint/consistent-type-imports': 'error',
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      // `ignoreRestSiblings` permits the idiomatic way to drop a property:
+      // `const { packId, ...sign } = stored`. The binding is unused on purpose — it is
+      // what performs the removal.
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', ignoreRestSiblings: true },
+      ],
       'no-console': ['warn', { allow: ['warn', 'error'] }],
       eqeqeq: ['error', 'always'],
+    },
+  },
+  {
+    // The service worker runs in a worker global scope, not a window.
+    files: ['packages/web/public/sw.js'],
+    languageOptions: {
+      globals: {
+        self: 'readonly',
+        caches: 'readonly',
+        fetch: 'readonly',
+        URL: 'readonly',
+        Response: 'readonly',
+        Request: 'readonly',
+      },
     },
   },
   {

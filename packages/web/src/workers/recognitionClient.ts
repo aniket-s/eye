@@ -6,6 +6,7 @@ import {
   type HandLandmarks,
   type VisionFrame,
 } from '@mudrapragyan/core';
+import type { CustomSign } from '@mudrapragyan/core';
 import type { WorkerRequest, WorkerResponse } from './protocol.js';
 
 /**
@@ -27,12 +28,20 @@ export interface RecognitionResultMessage {
   readonly rawLabel: string | null;
   readonly confidence: number | null;
   readonly reason: string | null;
+  /** A user-defined sign that matched, when one did. */
+  readonly custom?: { readonly label: string; readonly similarity: number };
+  /** This frame's embedding, present only while capture is enabled. */
+  readonly embedding?: readonly number[];
 }
 
 export interface ReadyInfo {
   readonly labelCount: number;
   readonly pipeline: 'v1' | 'v2' | 'ctc' | 'words';
   readonly packName?: string;
+  /** Pack version — half the namespace custom signs are stored under. */
+  readonly packVersion?: string;
+  /** Whether the loaded pack exposes embeddings, and so can learn the user's own signs. */
+  readonly supportsCustomSigns: boolean;
 }
 
 /** Emitted by word-level (isolated) packs. */
@@ -118,6 +127,21 @@ export class RecognitionClient {
   /** Clear motion history, e.g. when the hand leaves frame or a test restarts. */
   reset(): void {
     this.#post({ type: 'reset' });
+  }
+
+  /** Install the user's own signs, so the worker can match against them. */
+  setCustomSigns(signs: readonly CustomSign[]): void {
+    this.#post({ type: 'customSigns', signs });
+  }
+
+  /**
+   * Ask the worker to return each frame's embedding.
+   *
+   * Only enabled while the recorder is open: an embedding is ~128 floats, and shipping
+   * one per frame for a whole session would be waste with no reader.
+   */
+  setCapture(enabled: boolean): void {
+    this.#post({ type: 'capture', enabled });
   }
 
   /**
@@ -214,7 +238,9 @@ export class RecognitionClient {
         this.#options.onReady({
           labelCount: message.labelCount,
           pipeline: message.pipeline,
+          supportsCustomSigns: message.supportsCustomSigns ?? false,
           ...(message.packName === undefined ? {} : { packName: message.packName }),
+          ...(message.packVersion === undefined ? {} : { packVersion: message.packVersion }),
         });
         return;
       case 'error':
@@ -258,6 +284,8 @@ export class RecognitionClient {
           rawLabel: message.rawLabel,
           confidence: message.confidence,
           reason: message.reason,
+          ...(message.custom === undefined ? {} : { custom: message.custom }),
+          ...(message.embedding === undefined ? {} : { embedding: message.embedding }),
         });
     }
   }

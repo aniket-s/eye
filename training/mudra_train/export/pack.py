@@ -49,6 +49,26 @@ def choose_thresholds(report: EvaluationReport) -> dict[str, float | None]:
 OPSET = 18
 
 
+class _ExportWrapper(torch.nn.Module):
+    """Expose both logits and the embedding as graph outputs.
+
+    The embedding is what makes **user-defined signs** possible without training: the
+    app averages a handful of examples into a class centre and classifies by cosine
+    similarity. That only works if the browser can reach the embedding, so it is an
+    output of the exported graph rather than an internal activation.
+
+    Costs nothing — the encoder already computes it, and the head consumes it.
+    """
+
+    def __init__(self, model: HandshapeClassifier) -> None:
+        super().__init__()
+        self.model = model
+
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        embedding = self.model.encoder(x)
+        return self.model.head(embedding), embedding
+
+
 def export_onnx(model: HandshapeClassifier, path: Path, feature_length: int) -> None:
     """Export inference-only ONNX as a single self-contained file.
 
@@ -62,16 +82,16 @@ def export_onnx(model: HandshapeClassifier, path: Path, feature_length: int) -> 
     below so a pack is always exactly the files its manifest lists.
     """
     model.eval()
+    wrapper = _ExportWrapper(model).eval()
     example = torch.randn(1, feature_length)
-    batch = torch.export.Dim("batch")
 
     torch.onnx.export(
-        model,
+        wrapper,
         (example,),
         str(path),
         input_names=["features"],
-        output_names=["logits"],
-        dynamic_shapes={"x": {0: batch}},
+        output_names=["logits", "embedding"],
+        dynamic_shapes={"x": {0: torch.export.Dim.AUTO}},
         opset_version=OPSET,
         do_constant_folding=True,
     )
@@ -157,9 +177,18 @@ def verify_onnx(
         expected = model(torch.from_numpy(sample)).numpy()
 
     session = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
-    actual = session.run(["logits"], {"features": sample})[0]
+    logits, embedding = session.run(["logits", "embedding"], {"features": sample})
 
-    delta = float(np.max(np.abs(expected - actual)))
+    # Embeddings must stay on the unit hypersphere, or cosine similarity to a class
+    # centre — the basis of the custom-sign feature — stops being meaningful.
+    norms = np.linalg.norm(embedding, axis=-1)
+    if not np.allclose(norms, 1.0, atol=1e-3):
+        raise RuntimeError(
+            f"Exported embeddings are not unit-norm (min {norms.min():.4f}, "
+            f"max {norms.max():.4f}). Custom-sign matching would be unreliable."
+        )
+
+    delta = float(np.max(np.abs(expected - logits)))
     if delta > tolerance:
         raise RuntimeError(
             f"ONNX export does not match PyTorch: max logit delta {delta:.2e} "

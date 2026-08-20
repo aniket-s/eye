@@ -46,6 +46,32 @@ describe('HandshapeRecognizer', () => {
     expect(result.verdict?.accepted).toBe(true);
   });
 
+  /**
+   * The embedding is what user-defined signs are matched against. Dropping it here would
+   * disable that feature with no error anywhere — the panel would simply never match.
+   */
+  it('passes an embedding through when the classifier provides one', async () => {
+    const classifier: Classifier = {
+      labels: LABELS,
+      classify: () =>
+        Promise.resolve({
+          probabilities: [0.95, 0.03, 0.02],
+          logits: [4, -1, -2],
+          embedding: [0.6, 0.8],
+        }),
+    };
+    const result = await recognizer(classifier).recognise(openHand(), 'right');
+    expect(result.embedding).toEqual([0.6, 0.8]);
+  });
+
+  it('reports no embedding for a pack exported without one', async () => {
+    const result = await recognizer(stubClassifier([[0.95, 0.03, 0.02]])).recognise(
+      openHand(),
+      'right',
+    );
+    expect(result.embedding).toBeNull();
+  });
+
   it('returns no prediction when no hand is present', async () => {
     const result = await recognizer(stubClassifier([[0.95, 0.03, 0.02]])).recognise(null, 'right');
     expect(result.letter).toBe(NO_PREDICTION);

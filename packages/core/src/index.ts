@@ -57,6 +57,16 @@ export {
   type PackInput,
   type PackMetrics,
 } from './registry/manifest.js';
+export {
+  buildCustomSign,
+  cosineSimilarity,
+  normaliseVector,
+  CustomSignBook,
+  DEFAULT_MATCH_THRESHOLD,
+  MIN_SAMPLES,
+  type CustomSign,
+  type CustomSignMatch,
+} from './registry/customSigns.js';
 export { MlpClassifier } from './model/mlp.js';
 
 export { SentenceBuffer, type SentenceListener } from './sentence/sentenceBuffer.js';

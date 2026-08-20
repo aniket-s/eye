@@ -1,3 +1,9 @@
+// Self-hosted font. Previously loaded from fonts.googleapis.com, which meant a
+// third-party request from an app whose premise is that nothing leaves the device —
+// and a hard failure on restricted networks (docs/AUDIT.md, A10). Vite subsets and
+// hashes only the weights actually referenced.
+import '@fontsource-variable/inter/index.css';
+
 import './styles/app.css';
 import './styles/components.css';
 
@@ -5,6 +11,7 @@ import { DictionaryPage } from './pages/dictionary.js';
 import { TranslatorPage } from './pages/translator.js';
 import { Router } from './router.js';
 import { SideMenu } from './ui/sideMenu.js';
+import { registerServiceWorker, watchConnectivity } from './offline.js';
 
 /**
  * Application entry point.
@@ -30,6 +37,14 @@ function bootstrap(): void {
     if (page !== 'translator') void translator.stopCamera();
   });
   router.start();
+
+  // The app genuinely keeps working offline once cached, so say so rather than letting
+  // the user assume it has broken.
+  const banner = document.getElementById('offlineBanner');
+  watchConnectivity((online) => {
+    if (banner !== null) banner.hidden = online;
+  });
+  registerServiceWorker();
 }
 
 if (document.readyState === 'loading') {

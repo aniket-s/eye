@@ -1,24 +1,16 @@
 import { expect, test, type Page } from '@playwright/test';
 
 /**
- * Errors caused by a blocked or offline third-party host rather than by our code.
+ * Collect console errors so a test can assert the page loaded cleanly.
  *
- * The app still loads a webfont from `fonts.googleapis.com`. That is a third-party
- * request in an app whose selling point is that nothing leaves the device, and it
- * breaks the page in restricted networks. Self-hosting the font is queued for
- * Phase 5 alongside offline/PWA support; until then these are filtered so an
- * offline CI runner does not fail the suite for the wrong reason.
+ * No filtering any more. Phase 0 had to ignore blocked third-party requests because the
+ * app loaded a webfont from `fonts.googleapis.com`; that font is now self-hosted, so a
+ * clean load really does mean zero errors (docs/AUDIT.md, A10).
  */
-const EXTERNAL_RESOURCE_ERROR =
-  /ERR_TUNNEL_CONNECTION_FAILED|ERR_NAME_NOT_RESOLVED|ERR_INTERNET_DISCONNECTED|net::ERR_/;
-
-/** Collect console errors so a test can assert the page loaded cleanly. */
 function trackConsoleErrors(page: Page): string[] {
   const errors: string[] = [];
   page.on('console', (message) => {
-    if (message.type() === 'error' && !EXTERNAL_RESOURCE_ERROR.test(message.text())) {
-      errors.push(message.text());
-    }
+    if (message.type() === 'error') errors.push(message.text());
   });
   page.on('pageerror', (error) => errors.push(error.message));
   return errors;
@@ -235,5 +227,121 @@ test.describe('recognition worker', () => {
     await expect(page.locator('#modelStatus')).toContainText('signs', { timeout: 30_000 });
 
     expect(workerUrls.some((url) => url.includes('recognition'))).toBe(true);
+  });
+});
+
+test.describe('privacy and offline', () => {
+  /**
+   * The strongest claim the project makes is that nothing leaves the device. It is
+   * worth testing rather than asserting: a single third-party font or analytics
+   * request would quietly falsify it.
+   */
+  test('makes no third-party requests at all', async ({ page }) => {
+    const external: string[] = [];
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (url.origin !== 'http://127.0.0.1:4173' && url.protocol !== 'data:') {
+        external.push(request.url());
+      }
+    });
+
+    await page.goto('/');
+    await page.locator('#modelStatus').waitFor({ state: 'attached' });
+    await page.waitForTimeout(1500);
+
+    expect(external).toEqual([]);
+  });
+
+  test('serves the font from our own origin', async ({ page }) => {
+    const fontRequests: string[] = [];
+    page.on('request', (request) => {
+      if (request.resourceType() === 'font') fontRequests.push(request.url());
+    });
+
+    await page.goto('/');
+    await page.waitForTimeout(1000);
+
+    for (const url of fontRequests) {
+      expect(url).toContain('127.0.0.1:4173');
+    }
+  });
+
+  test('publishes an installable web app manifest', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('link[rel="manifest"]')).toHaveCount(1);
+
+    const response = await page.request.get('/manifest.webmanifest');
+    expect(response.ok()).toBe(true);
+
+    const manifest = (await response.json()) as { name: string; display: string; icons: unknown[] };
+    expect(manifest.name).toBe('MudraPragyan.AI');
+    expect(manifest.display).toBe('standalone');
+    expect(manifest.icons.length).toBeGreaterThan(0);
+  });
+
+  test('ships a service worker that caches the heavy assets', async ({ page }) => {
+    const response = await page.request.get('/sw.js');
+    expect(response.ok()).toBe(true);
+
+    const source = await response.text();
+    // The WASM and model weights are the bulk of the payload; caching them is what makes
+    // a repeat visit — and an offline one — work at all.
+    for (const pattern of ['mediapipe', 'wasm', 'onnx']) {
+      expect(source).toContain(pattern);
+    }
+    await page.goto('/');
+  });
+
+  /**
+   * A pack manifest lives at a stable URL across retrains, so caching it by URL would
+   * pin a user to the first pack they ever downloaded with no way to tell. It must fall
+   * through to the network-first path.
+   */
+  test('does not cache pack manifests by URL', async ({ page }) => {
+    const source = await (await page.request.get('/sw.js')).text();
+    const immutable = /const IMMUTABLE = \[(.*?)\];/s.exec(source)?.[1] ?? '';
+    expect(immutable).not.toContain('/models/');
+  });
+
+  /**
+   * Service workers are blocked for the rest of the suite (see `playwright.config.ts`),
+   * because they intercept the routes the pack fixtures rely on. Registration is still
+   * worth proving somewhere, so this block opts back in.
+   */
+  test.describe('with the service worker enabled', () => {
+    test.use({ serviceWorkers: 'allow' });
+
+    test('registers and takes control', async ({ page }) => {
+      await page.goto('/');
+      // `ready` resolves as soon as a worker is active, which can still be `activating`
+      // while our `activate` handler prunes old caches and claims clients.
+      const state = await page.evaluate(async () => {
+        const worker = (await navigator.serviceWorker.ready).active;
+        if (worker === null) return 'none';
+        if (worker.state === 'activated') return worker.state;
+        await new Promise<void>((resolve) => {
+          worker.addEventListener('statechange', () => {
+            if (worker.state === 'activated') resolve();
+          });
+        });
+        return worker.state;
+      });
+      expect(state).toBe('activated');
+    });
+  });
+
+  test('tells the user the app still works when offline', async ({ page }) => {
+    await page.goto('/');
+    const banner = page.locator('#offlineBanner');
+    await expect(banner).toBeHidden();
+
+    await page.context().setOffline(true);
+    await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+    await expect(banner).toBeVisible();
+    await expect(banner).toContainText('runs on your device');
+
+    await page.context().setOffline(false);
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await expect(banner).toBeHidden();
   });
 });

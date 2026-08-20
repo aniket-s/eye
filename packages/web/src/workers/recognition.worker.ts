@@ -18,6 +18,7 @@
  */
 import {
   ContinuousRecognizer,
+  CustomSignBook,
   IsolatedSignRecognizer,
   VisionFrameView,
   HandshapeRecognizer,
@@ -30,7 +31,7 @@ import type { Handedness, MlpWeights } from '@mudrapragyan/core';
 import { OnnxClassifier } from '../model/onnxClassifier.js';
 import { OnnxSequenceClassifier } from '../model/onnxSequenceClassifier.js';
 import { OnnxClipClassifier } from '../model/onnxClipClassifier.js';
-import { loadPack } from '../model/pack.js';
+import { loadPack, resolvePackId } from '../model/pack.js';
 import type { WorkerRequest, WorkerResponse } from './protocol.js';
 
 const scope = self as unknown as DedicatedWorkerGlobalScope;
@@ -45,6 +46,16 @@ let continuous: ContinuousRecognizer | null = null;
 let words: IsolatedSignRecognizer | null = null;
 let legacy: LegacyRecognizer | null = null;
 
+/**
+ * The user's own signs, matched against each frame's embedding.
+ *
+ * Lives here rather than on the main thread so a match costs one dot product on the
+ * thread that already holds the embedding, instead of posting 128 floats per frame.
+ */
+const customSigns = new CustomSignBook();
+/** Whether to send embeddings back. Only true while the recorder is open. */
+let capturing = false;
+
 function post(message: WorkerResponse): void {
   scope.postMessage(message);
 }
@@ -57,7 +68,9 @@ function post(message: WorkerResponse): void {
  * it invisible.
  */
 async function init(fallbackModelUrl: string): Promise<void> {
-  const pack = await loadPack();
+  // Which pack, if several are installed. A one-pack install skips the registry
+  // entirely and behaves exactly as before.
+  const pack = await loadPack(await resolvePackId());
 
   if (pack !== null && pack.manifest.task === 'temporal-isolated') {
     const classifier = await OnnxClipClassifier.create(pack.modelBytes, pack.manifest);
@@ -106,6 +119,8 @@ async function init(fallbackModelUrl: string): Promise<void> {
       labelCount: pack.manifest.labels.filter((label) => label !== 'none').length,
       pipeline: 'v2',
       packName: `${pack.manifest.name} v${pack.manifest.version}`,
+      packVersion: pack.manifest.version,
+      supportsCustomSigns: classifier.supportsCustomSigns,
     });
     return;
   }
@@ -138,6 +153,14 @@ scope.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
       continuous?.reset();
       words?.reset();
       legacy?.reset();
+      return;
+
+    case 'customSigns':
+      customSigns.load(message.signs);
+      return;
+
+    case 'capture':
+      capturing = message.enabled;
       return;
 
     case 'frame': {
@@ -195,14 +218,25 @@ scope.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
         void modern
           .recognise(landmarks, message.handedness)
           .then((result) => {
+            // Arbitration between the trained vocabulary and the user's own lives in
+            // `CustomSignBook`, where it is unit-tested — see `matchIfUnrecognised`.
+            const custom = customSigns.matchIfUnrecognised(
+              result.embedding,
+              result.verdict?.accepted ?? false,
+            );
+
             post({
               type: 'result',
               seq: message.seq,
               timestampMs: message.timestampMs,
-              letter: result.letter,
+              letter: custom?.sign.label ?? result.letter,
               rawLabel: result.verdict?.label ?? null,
               confidence: result.verdict?.probability ?? null,
-              reason: result.verdict?.reason ?? null,
+              reason: custom !== null ? 'custom-sign' : (result.verdict?.reason ?? null),
+              ...(custom !== null
+                ? { custom: { label: custom.sign.label, similarity: custom.similarity } }
+                : {}),
+              ...(capturing && result.embedding !== null ? { embedding: result.embedding } : {}),
             });
           })
           .catch((error: unknown) => {

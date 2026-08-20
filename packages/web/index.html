@@ -9,12 +9,9 @@
       content="Translate sign language into text in real time. All processing happens on your device — video never leaves your computer."
     />
     <link rel="icon" href="/logo.png" type="image/png" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
-      rel="stylesheet"
-    />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#00d4c8" />
+    <link rel="apple-touch-icon" href="/logo.png" />
   </head>
   <body>
     <button class="hamburger" id="menuToggle" aria-label="Open menu" aria-expanded="false">
@@ -37,6 +34,10 @@
       >
     </nav>
     <div class="overlay" id="overlay"></div>
+
+    <div class="offline-banner" id="offlineBanner" role="status" hidden>
+      Offline — recognition still works, everything runs on your device.
+    </div>
 
     <!-- ── Home ── -->
     <main class="page active" id="home">
@@ -134,6 +135,31 @@
           </div>
 
           <button id="startAccuracyTest" class="test-btn">◎ Test Model Accuracy</button>
+
+          <!-- Teaching the app a sign it was never trained on. Hidden until a pack
+               that exposes embeddings is loaded. -->
+          <div class="custom-panel" id="customPanel" hidden>
+            <div class="custom-heading">Your own signs</div>
+            <p class="custom-blurb">
+              Record a handshape the model has never seen — a name sign, a regional variant, a
+              shortcut. Everything stays on this device.
+            </p>
+            <div class="custom-controls">
+              <label class="sr-only" for="customName">Name for the sign</label>
+              <input
+                id="customName"
+                class="custom-input"
+                type="text"
+                maxlength="32"
+                placeholder="Name, e.g. “Aniket”"
+                autocomplete="off"
+              />
+              <button id="customRecord" class="custom-record" type="button">Record a sign</button>
+            </div>
+            <p class="custom-status" id="customStatus" role="status"></p>
+            <ul class="custom-list" id="customList"></ul>
+            <button id="customClear" class="custom-clear" type="button" disabled>Remove all</button>
+          </div>
         </div>
       </div>
     </main>

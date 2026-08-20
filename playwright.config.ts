@@ -16,6 +16,16 @@ export default defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:4173',
     trace: 'on-first-retry',
+    /**
+     * Service worker requests bypass `page.route`, so a registered worker would serve
+     * its own cached copy of whatever a *previous* test installed at
+     * `/models/asl-fingerspell/model.onnx` — every pack fixture shares that URL. Tests
+     * would then pass or fail by execution order.
+     *
+     * Blocked by default; `e2e/smoke.spec.ts` re-enables it where the worker itself is
+     * what is under test.
+     */
+    serviceWorkers: 'block',
   },
   projects: [
     {

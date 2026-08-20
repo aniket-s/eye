@@ -25,36 +25,36 @@ tool, and not a substitute for a qualified interpreter.
 Signer-independent: no signer appears in both training and test.
 
 - Held-out signers: synthetic-00, synthetic-04
-- macro-F1: **0.8407**
-- accuracy: 0.8632
-- Expected calibration error: 0.0932
-- Rejection AUROC (known vs `none`): 0.9838
+- macro-F1: **0.8649**
+- accuracy: 0.8777
+- Expected calibration error: 0.0386
+- Rejection AUROC (known vs `none`): 0.9820
 
 ### Per slice
 
 | Slice                | Support | macro-F1 |
 | -------------------- | ------- | -------- |
-| condition=near       | 181     | 0.8302   |
-| condition=angled     | 205     | 0.8387   |
-| hand=left            | 339     | 0.8390   |
-| condition=far        | 202     | 0.8406   |
-| hand=right           | 765     | 0.8413   |
-| condition=dim        | 200     | 0.8514   |
-| condition=normal     | 172     | 0.8732   |
-| condition=transition | 144     | 0.9008   |
+| condition=angled     | 205     | 0.8567   |
+| condition=near       | 181     | 0.8573   |
+| hand=right           | 765     | 0.8611   |
+| condition=dim        | 200     | 0.8619   |
+| condition=far        | 202     | 0.8650   |
+| hand=left            | 339     | 0.8730   |
+| condition=normal     | 172     | 0.8938   |
+| condition=transition | 144     | 0.9294   |
 
-**Worst slice: condition=near at 0.8302.**
+**Worst slice: condition=angled at 0.8567.**
 
 ### Most frequent confusions
 
-- S → N (×25)
-- V → U (×24)
-- N → M (×16)
-- S → T (×15)
-- V → R (×11)
-- U → R (×10)
-- M → N (×7)
-- R → U (×7)
+- V → U (×21)
+- N → M (×17)
+- S → N (×14)
+- S → T (×13)
+- T → S (×12)
+- V → R (×12)
+- R → U (×8)
+- U → R (×8)
 
 ## Limitations
 

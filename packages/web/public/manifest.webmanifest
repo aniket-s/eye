@@ -1,0 +1,16 @@
+{
+  "name": "MudraPragyan.AI",
+  "short_name": "MudraPragyan",
+  "description": "Sign language recognition that runs entirely on your device. Video never leaves your computer.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#050510",
+  "theme_color": "#00d4c8",
+  "categories": ["education", "accessibility", "utilities"],
+  "icons": [
+    { "src": "logo.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "logo.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -66,6 +66,7 @@ jobs:
       - name: Install training dependencies
         run: pip install torch --index-url https://download.pytorch.org/whl/cpu &&
           pip install -e "training[dev]" onnx onnxruntime onnxscript
+          opencv-python-headless
 
       # Regenerate the parity fixtures from TypeScript, then assert Python matches.
       # This is the guard against train/inference skew: change one normaliser without

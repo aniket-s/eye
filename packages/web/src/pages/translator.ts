@@ -6,6 +6,8 @@ import {
 } from '@mudrapragyan/core';
 import { requireElement } from '../dom.js';
 import { AccuracyTest } from '../features/accuracyTest.js';
+import { CustomSignsPanel } from '../features/customSigns.js';
+import { resolvePackId } from '../model/pack.js';
 import { speak } from '../speech.js';
 import {
   describeCameraError,
@@ -14,7 +16,7 @@ import {
   type CameraSession,
 } from '../vision/camera.js';
 import { VisionLandmarker } from '../vision/landmarker.js';
-import { RecognitionClient } from '../workers/recognitionClient.js';
+import { RecognitionClient, type ReadyInfo } from '../workers/recognitionClient.js';
 
 const SENTENCE_PLACEHOLDER = 'Detected letters appear here…';
 const MODEL_URL = `${import.meta.env.BASE_URL}model_weights.json`;
@@ -51,6 +53,7 @@ export class TranslatorPage {
   readonly #sentence = new SentenceBuffer();
   readonly #hold = new TimedHoldCommitDetector();
   readonly #accuracyTest = new AccuracyTest();
+  readonly #customSigns = new CustomSignsPanel();
   readonly #landmarker = new VisionLandmarker();
 
   #recognition: RecognitionClient | null = null;
@@ -61,6 +64,7 @@ export class TranslatorPage {
 
   start(): void {
     this.#accuracyTest.start(() => this.#recognition?.reset());
+    this.#customSigns.bind();
 
     this.#startButton.addEventListener('click', () => void this.#startCamera());
     requireElement('addSpace').addEventListener('click', () => this.#sentence.appendSpace());
@@ -106,6 +110,9 @@ export class TranslatorPage {
           this.#letterLabel.textContent = 'Fingerspell continuously — no need to pause';
         } else if (info.pipeline === 'v2') {
           this.#setStatus(`✅ ${info.packName} — ${info.labelCount} signs`, 'ready');
+          // Only the static-handshape pipeline produces per-frame embeddings, so it is
+          // the only one that can learn a new sign from a held pose.
+          void this.#attachCustomSigns(info);
         } else {
           // The legacy path still runs the correction heuristics. Say so, rather than
           // presenting it as equivalent to a trained pack.
@@ -128,6 +135,7 @@ export class TranslatorPage {
               ? '—'
               : `${(result.confidence * 100).toFixed(1)}% (${result.reason ?? '—'})`;
         }
+        this.#customSigns.observe(result.embedding, result.timestampMs);
         if (result.letter !== NO_PREDICTION) this.#accuracyTest.observe(result.letter);
         this.#renderLetter(result.letter, result.timestampMs);
       },
@@ -150,6 +158,24 @@ export class TranslatorPage {
       onError: (message) => this.#setStatus(`⚠ ${message}`, 'error'),
     });
     this.#recognition.init(MODEL_URL);
+  }
+
+  /**
+   * Show the custom-signs panel once a handshape pack is live.
+   *
+   * The pack id is resolved again rather than passed through the worker protocol: it is
+   * half of the storage namespace, and reading it from the same function the worker used
+   * keeps one source of truth for which pack is loaded. The other half is the version,
+   * which arrives with the ready message.
+   */
+  async #attachCustomSigns(info: ReadyInfo): Promise<void> {
+    const client = this.#recognition;
+    if (client === null) return;
+    await this.#customSigns.attach(
+      client,
+      { id: await resolvePackId(), version: info.packVersion ?? 'unknown' },
+      info.supportsCustomSigns,
+    );
   }
 
   /** Release the camera and vision models, e.g. when navigating away. */

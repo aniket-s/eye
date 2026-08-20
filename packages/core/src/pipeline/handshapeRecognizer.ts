@@ -34,6 +34,14 @@ export interface Classifier {
   classify(features: Float32Array): Promise<{
     readonly probabilities: number[];
     readonly logits: number[];
+    /**
+     * Unit-norm penultimate activations, when the graph exposes them.
+     *
+     * Present for ArcFace-trained packs, absent for older ones. This is what makes
+     * user-defined signs possible without retraining — see
+     * `packages/core/src/registry/customSigns.ts`.
+     */
+    readonly embedding?: readonly number[];
   }>;
 }
 
@@ -49,9 +57,16 @@ export interface HandshapeResult {
   readonly letter: string;
   /** Full verdict, for the debug overlay. */
   readonly verdict: Verdict | null;
+  /**
+   * This frame's embedding, when the pack exposes one.
+   *
+   * Passed through rather than consumed here: matching against the user's own signs is
+   * a policy decision, and policy does not belong in the pipeline.
+   */
+  readonly embedding: readonly number[] | null;
 }
 
-const EMPTY: HandshapeResult = { letter: NO_PREDICTION, verdict: null };
+const EMPTY: HandshapeResult = { letter: NO_PREDICTION, verdict: null, embedding: null };
 
 export class HandshapeRecognizer {
   readonly #classifier: Classifier;
@@ -91,13 +106,17 @@ export class HandshapeRecognizer {
     }
 
     normaliseHand(landmarks, handedness, this.#features);
-    const { probabilities, logits } = await this.#classifier.classify(this.#features);
+    const { probabilities, logits, embedding } = await this.#classifier.classify(this.#features);
 
     // Smooth probabilities, not labels. One flickered frame is outvoted by the
     // median instead of resetting everything downstream.
     const smoothed = this.#smoother.push(probabilities);
     const verdict = judge(this.#classifier.labels, smoothed, logits, this.#thresholds);
 
-    return { letter: verdict.accepted ? verdict.label : NO_PREDICTION, verdict };
+    return {
+      letter: verdict.accepted ? verdict.label : NO_PREDICTION,
+      verdict,
+      embedding: embedding ?? null,
+    };
   }
 }

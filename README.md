@@ -97,6 +97,12 @@ scripts/           setup-assets.mjs — self-hosts the MediaPipe WASM and models
 training/          Python: ingest → augment → train → evaluate → export ONNX packs.
 ```
 
+**Ingesting video corpora:** datasets that ship clips rather than coordinates — INCLUDE
+for Indian Sign Language, PopSign in raw form — go through
+`training/mudra_train/ingest/video.py`, which runs the _same_ MediaPipe Tasks bundles the
+browser does. The derived landmarks are far smaller than the video and, for a CC BY 4.0
+source, redistributable.
+
 **Recording training data:** `npm run dev` then open `/recorder.html`. It captures hand
 landmarks only — never video — tagged with signer id and lighting/distance condition, and
 exports JSONL. Phase 2's signer-independent evaluation depends on those tags.
@@ -113,13 +119,34 @@ camera → MediaPipe hand landmarks → normalise → classifier → smoothing �
 Everything after the camera happens on your device. Nothing is uploaded. See
 [`docs/PRIVACY.md`](docs/PRIVACY.md) — and verify it yourself with the Network tab.
 
+The app is a PWA: install it, then use it with the network off. On a second visit the
+~25 MB of WASM and model weights come from the local cache.
+
+## Teaching it your own signs
+
+Open the Translator, type a name, and hold a handshape for a couple of seconds. Six
+examples are enough.
+
+This works with no training and no server because the classifier is trained with an
+**ArcFace** head, which places every handshape on a unit hypersphere. Averaging a few
+embeddings gives a class centroid, and classification is then a cosine similarity — a
+single dot product. It is the only practical route to name signs, regional variants and
+personal shortcuts, none of which will ever appear in a public dataset.
+
+A custom sign is only consulted when the trained vocabulary _declines_ a frame: a trained
+class rests on thousands of examples from many signers, yours on six. The app also warns
+when your examples were inconsistent, or when a new sign is too close to an existing one
+to tell apart. Everything is stored in IndexedDB on your device, namespaced by pack.
+
+Requires a pack exported with an embedding output; the panel says so when one is not. The
+design, and its limits, are in [ADR 0005](docs/adr/0005-few-shot-custom-signs.md).
+
 ## Known limitations
 
 These are **real and documented**, not hidden. Full detail in [`docs/AUDIT.md`](docs/AUDIT.md).
 
 - **No trained model ships with the repo.** Until you train one the app runs the v1 fallback,
   which has all the defects below. It says so on screen.
-- **The Dictionary shows no images.** None of the referenced files exist (A1).
 - **The in-app accuracy test is not a benchmark.** It measures one person in one session and
   cannot predict performance for anyone else (A3). Real evaluation lives in `training/`.
 - **Word categories in the Dictionary have no artwork.** The alphabet and numbers do.
@@ -138,8 +165,8 @@ and, with a CTC pack, the dwell timer and the J/Z state machine (J1–J3).
 | **1** | MediaPipe Tasks Vision, two hands, pose, Web Worker, landmark recorder                            | ✅ Done |
 | **2** | Training pipeline, normalisation, `none` class, ONNX packs, signer-independent evaluation         | ✅ Done |
 | **3** | Continuous fingerspelling via CTC. J/Z state machine and dwell timer removed. Dictionary artwork. | ✅ Done |
-| **4** | 250 word-level signs, two-handed                                                                  |         |
-| **5** | Indian Sign Language, custom user signs, offline PWA                                              |         |
+| **4** | 250 word-level signs, two-handed                                                                  | ✅ Done |
+| **5** | Custom user signs, offline PWA, multi-pack registry, video ingestion for ISL                      | ✅ Done |
 
 ## Data and licensing
 

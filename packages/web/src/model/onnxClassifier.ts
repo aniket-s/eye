@@ -39,19 +39,42 @@ export interface ClassificationResult {
   readonly label: string;
   readonly probabilities: number[];
   readonly logits: number[];
+  /** Unit-norm embedding, when the pack's graph exposes one. */
+  readonly embedding?: number[];
 }
+
+/** Graph output carrying the penultimate activations, if the pack was exported with them. */
+const EMBEDDING_OUTPUT = 'embedding';
 
 export class OnnxClassifier {
   readonly #session: ort.InferenceSession;
   readonly #manifest: PackManifest;
   readonly #inputName: string;
   readonly #outputName: string;
+  readonly #hasEmbedding: boolean;
 
   private constructor(session: ort.InferenceSession, manifest: PackManifest) {
     this.#session = session;
     this.#manifest = manifest;
     this.#inputName = session.inputNames[0] ?? 'features';
-    this.#outputName = session.outputNames[0] ?? 'logits';
+    // Named rather than positional: an exporter that emits `embedding` first would
+    // otherwise silently turn embeddings into logits.
+    this.#outputName = session.outputNames.includes('logits')
+      ? 'logits'
+      : (session.outputNames.find((name) => name !== EMBEDDING_OUTPUT) ??
+        session.outputNames[0] ??
+        'logits');
+    this.#hasEmbedding = session.outputNames.includes(EMBEDDING_OUTPUT);
+  }
+
+  /**
+   * Whether this pack can support user-defined signs.
+   *
+   * Packs exported before the ArcFace head cannot, and the UI needs to say so rather
+   * than offering a feature that will never match anything.
+   */
+  get supportsCustomSigns(): boolean {
+    return this.#hasEmbedding;
   }
 
   /**
@@ -106,7 +129,14 @@ export class OnnxClassifier {
       if ((probabilities[i] as number) > (probabilities[best] as number)) best = i;
     }
 
-    return { label: this.#manifest.labels[best] ?? 'none', probabilities, logits };
+    const label = this.#manifest.labels[best] ?? 'none';
+    if (!this.#hasEmbedding) return { label, probabilities, logits };
+
+    const rawEmbedding = output[EMBEDDING_OUTPUT]?.data;
+    if (!(rawEmbedding instanceof Float32Array)) {
+      throw new Error('Model declares an embedding output but did not return float data');
+    }
+    return { label, probabilities, logits, embedding: Array.from(rawEmbedding) };
   }
 
   /**

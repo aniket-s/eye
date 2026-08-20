@@ -4,6 +4,7 @@
  * Landmarks travel as a transferable `Float32Array` rather than an array of objects,
  * so the hot path allocates nothing per frame on either side (docs/AUDIT.md, A5).
  */
+import type { CustomSign } from '@mudrapragyan/core';
 
 /** Main thread → worker. */
 export type WorkerRequest =
@@ -32,7 +33,27 @@ export type WorkerRequest =
        */
       readonly frame?: Float32Array;
     }
-  | { readonly type: 'reset' };
+  | { readonly type: 'reset' }
+  | {
+      /**
+       * Install the user's own signs.
+       *
+       * Sent whenever the collection changes. The worker owns matching so it happens on
+       * the same thread as inference, next to the embedding that was just produced.
+       */
+      readonly type: 'customSigns';
+      readonly signs: readonly CustomSign[];
+    }
+  | {
+      /**
+       * Start or stop returning embeddings with each result.
+       *
+       * Off by default: an embedding is ~128 floats, and posting one per frame for the
+       * whole session would be pure waste when nobody is recording.
+       */
+      readonly type: 'capture';
+      readonly enabled: boolean;
+    };
 
 /** Worker → main thread. */
 export type WorkerResponse =
@@ -50,6 +71,20 @@ export type WorkerResponse =
       readonly pipeline: 'v1' | 'v2' | 'ctc' | 'words';
       /** Pack name, when a v2 pack is installed. */
       readonly packName?: string;
+      /**
+       * Pack version.
+       *
+       * Part of the identity of the embedding space, not decoration: custom signs
+       * recorded against an earlier build of the same pack describe nothing in this one.
+       */
+      readonly packVersion?: string;
+      /**
+       * Whether this pack exposes embeddings, and so can learn the user's own signs.
+       *
+       * Reported rather than assumed: packs exported before the ArcFace head cannot,
+       * and the UI must say so instead of offering a feature that never matches.
+       */
+      readonly supportsCustomSigns?: boolean;
     }
   | { readonly type: 'error'; readonly message: string }
   | {
@@ -61,6 +96,13 @@ export type WorkerResponse =
       readonly confidence: number | null;
       /** Why the frame was accepted or rejected, for the debug overlay. */
       readonly reason: string | null;
+      /**
+       * A user-defined sign that matched this frame more confidently than the
+       * built-in vocabulary, if any.
+       */
+      readonly custom?: { readonly label: string; readonly similarity: number };
+      /** This frame's embedding. Only present while capture is enabled. */
+      readonly embedding?: readonly number[];
     }
   | {
       /** Emitted by `temporal-ctc` packs, which decode whole windows. */

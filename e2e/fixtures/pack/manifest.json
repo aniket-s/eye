@@ -42,12 +42,12 @@
     "maxEnergy": null
   },
   "metrics": {
-    "macroF1": 0.84069,
-    "worstSliceF1": 0.830243,
-    "ece": 0.093211,
+    "macroF1": 0.86493,
+    "worstSliceF1": 0.856671,
+    "ece": 0.038584,
     "testSigners": 2
   },
   "modelFile": "model.onnx",
-  "sha256": "119c968c06193ea882e1cc72c91aefb2aa6cce0d92fef65bd3fefa649fab0e03",
+  "sha256": "57feb9a9ac7aef4cbdd11a79eefe4d27d32aad5df61dc916159485144df84176",
   "licence": "synthetic (no real data)"
 }

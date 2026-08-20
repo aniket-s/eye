@@ -29,12 +29,18 @@ const CTC_FIXTURES = join(HERE, 'fixtures', 'ctc-pack');
 const ctcManifest = readFileSync(join(CTC_FIXTURES, 'manifest.json'), 'utf8');
 const ctcModelBytes = readFileSync(join(CTC_FIXTURES, 'model.onnx'));
 
-/** Serve the fixture pack at the path the app looks for. */
+/**
+ * Serve the fixture pack at the path the app looks for.
+ *
+ * The weights glob ends in `*` because `loadPack` stamps the pack version into the
+ * query string, which is what makes the URL safe for the service worker to cache
+ * permanently. A glob without it would silently stop matching.
+ */
 async function installPack(page: Page, manifestBody = manifest): Promise<void> {
   await page.route('**/models/asl-fingerspell/manifest.json', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: manifestBody }),
   );
-  await page.route('**/models/asl-fingerspell/model.onnx', (route) =>
+  await page.route('**/models/asl-fingerspell/model.onnx*', (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/octet-stream',
@@ -109,6 +115,32 @@ test.describe('v2 model pack', () => {
     await expect(status).toContainText('Refusing to load');
   });
 
+  /**
+   * Custom signs are only possible because the pack exports its penultimate
+   * activations. If a retrain ever drops that output the panel must not silently stop
+   * matching — it should say so, which is what this checks from the other side.
+   */
+  test('offers custom signs when the pack exposes an embedding', async ({ page }) => {
+    await installPack(page);
+    await page.goto('/#translator');
+    await expect(page.locator('#modelStatus')).toHaveClass(/ready/, { timeout: 60_000 });
+
+    await expect(page.locator('#customPanel')).toBeVisible();
+    await expect(page.locator('#customRecord')).toBeEnabled();
+    await expect(page.locator('#customList')).toContainText('No custom signs yet');
+  });
+
+  test('asks for a name before recording', async ({ page }) => {
+    await installPack(page);
+    await page.goto('/#translator');
+    await expect(page.locator('#modelStatus')).toHaveClass(/ready/, { timeout: 60_000 });
+
+    await page.locator('#customRecord').click();
+    await expect(page.locator('#customStatus')).toContainText('name');
+    // No camera in a headless run, so nothing should have started collecting.
+    await expect(page.locator('#customRecord')).toHaveText('Record a sign');
+  });
+
   test('refuses a pack with no held-out signers', async ({ page }) => {
     const tampered = JSON.parse(manifest) as Record<string, unknown>;
     (tampered['metrics'] as Record<string, unknown>)['testSigners'] = 0;
@@ -128,7 +160,7 @@ test.describe('continuous fingerspelling (CTC)', () => {
     await page.route('**/models/asl-fingerspell/manifest.json', (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: ctcManifest }),
     );
-    await page.route('**/models/asl-fingerspell/model.onnx', (route) =>
+    await page.route('**/models/asl-fingerspell/model.onnx*', (route) =>
       route.fulfill({ status: 200, contentType: 'application/octet-stream', body: ctcModelBytes }),
     );
   }
@@ -185,7 +217,7 @@ test.describe('word-level signs', () => {
     await page.route('**/models/asl-fingerspell/manifest.json', (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: wordManifest }),
     );
-    await page.route('**/models/asl-fingerspell/model.onnx', (route) =>
+    await page.route('**/models/asl-fingerspell/model.onnx*', (route) =>
       route.fulfill({ status: 200, contentType: 'application/octet-stream', body: wordModelBytes }),
     );
   }
