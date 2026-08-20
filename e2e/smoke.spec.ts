@@ -75,13 +75,19 @@ test.describe('application shell', () => {
 });
 
 test.describe('model loading', () => {
-  test('reports the model as ready with its label count', async ({ page }) => {
+  /**
+   * With no model pack installed the app falls back to the v1 model, which still runs
+   * the legacy correction heuristics. That is presented as a warning rather than a
+   * working state, so nobody mistakes the fallback for a trained model.
+   * `e2e/pack.spec.ts` covers the v2 path.
+   */
+  test('warns that the legacy model is in use when no pack is installed', async ({ page }) => {
     await page.goto('/#translator');
+    const status = page.locator('#modelStatus');
     // 26 letters + space in the v1 export.
-    await expect(page.locator('#modelStatus')).toContainText('27 signs loaded', {
-      timeout: 30_000,
-    });
-    await expect(page.locator('#modelStatus')).toHaveClass(/ready/);
+    await expect(status).toContainText('27 signs', { timeout: 30_000 });
+    await expect(status).toContainText('Train a model pack');
+    await expect(status).toHaveClass(/error/);
   });
 
   test('surfaces a clear error when the model is missing', async ({ page }) => {
@@ -202,7 +208,8 @@ test.describe('recognition worker', () => {
     page.on('worker', (worker) => workerUrls.push(worker.url()));
 
     await page.goto('/#translator');
-    await expect(page.locator('#modelStatus')).toHaveClass(/ready/, { timeout: 30_000 });
+    // Whichever pipeline wins, the model is resolved inside the worker.
+    await expect(page.locator('#modelStatus')).toContainText('signs', { timeout: 30_000 });
 
     expect(workerUrls.some((url) => url.includes('recognition'))).toBe(true);
   });

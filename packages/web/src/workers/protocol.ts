@@ -15,12 +15,28 @@ export type WorkerRequest =
       readonly timestampMs: number;
       /** Packed landmarks of the primary hand, or `null` when no hand is visible. */
       readonly landmarks: Float32Array | null;
+      /**
+       * Which of the signer's hands it is.
+       *
+       * Required by the v2 pipeline, which canonicalises left hands during
+       * normalisation. Sending the wrong value would mirror the geometry and produce
+       * confident nonsense, so it travels with the landmarks rather than being
+       * inferred later.
+       */
+      readonly handedness: 'left' | 'right';
     }
   | { readonly type: 'reset' };
 
 /** Worker → main thread. */
 export type WorkerResponse =
-  | { readonly type: 'ready'; readonly labelCount: number }
+  | {
+      readonly type: 'ready';
+      readonly labelCount: number;
+      /** Which pipeline is live. `v1` still runs the legacy correction heuristics. */
+      readonly pipeline: 'v1' | 'v2';
+      /** Pack name, when a v2 pack is installed. */
+      readonly packName?: string;
+    }
   | { readonly type: 'error'; readonly message: string }
   | {
       readonly type: 'result';
@@ -29,4 +45,6 @@ export type WorkerResponse =
       readonly letter: string;
       readonly rawLabel: string | null;
       readonly confidence: number | null;
+      /** Why the frame was accepted or rejected, for the debug overlay. */
+      readonly reason: string | null;
     };

@@ -2,11 +2,13 @@
 
 **Sign language recognition that runs entirely in your browser.** No server, no upload, no cost.
 
-> **Status: Phases 0 and 1 complete.** The application has been restructured from a single 1,325-line
-> HTML file into a tested monorepo, and the vision layer has been rebuilt on MediaPipe Tasks
-> Vision with two-handed tracking and worker-based inference. **The classifier itself is still
-> the v1 model**, with all its known defects — those are Phase 2. See
-> [`docs/AUDIT.md`](docs/AUDIT.md) for what is wrong and the roadmap below for the plan.
+> **Status: Phases 0–2 complete.** The application has been restructured from a single 1,325-line
+> HTML file into a tested monorepo, the vision layer rebuilt on MediaPipe Tasks Vision, and a
+> complete training pipeline built with signer-independent evaluation and ONNX model packs.
+>
+> **You need to train a model.** The pipeline is tested end to end, but no real dataset can be
+> shipped with it. Until you train one, the app falls back to the v1 model and says so.
+> See [Training a model](#training-a-model) — it takes about half an hour.
 
 ---
 
@@ -34,6 +36,36 @@ Camera access needs a secure context, so use `localhost` or HTTPS.
 
 **Deploying?** See [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
+## Training a model
+
+The app ships with no trained model, because no dataset can legally or practically be
+bundled. Two routes:
+
+**Fastest — record your own (~30 minutes).**
+
+```bash
+npm run dev                    # open http://localhost:5173/recorder.html
+# Record 24 letters + `none`, twice: once per hand, across a few lighting conditions.
+# Get a second person to record too — a single-signer dataset is refused, on purpose.
+
+pip install -e "training[dev]"
+cd training
+python -m mudra_train.train --data ./recordings --out ../packages/web/public/models/asl-fingerspell
+```
+
+**Best quality — FSboard.** 3M+ characters from 147 Deaf signers, CC BY 4.0. Needs a free
+Kaggle account. Point `--data` at the extracted landmarks.
+
+**Just checking the pipeline runs:**
+
+```bash
+npm run train:synthetic        # procedural fixtures — NOT a usable model
+```
+
+Training always evaluates on **held-out signers** and reports per-slice scores, so a model
+that works for right-handed signers in good light and fails otherwise cannot hide behind a
+healthy average.
+
 ## Layout
 
 ```
@@ -42,6 +74,7 @@ packages/web/      The application. UI, camera, wiring. No recognition decisions
 docs/adr/          Architecture decision records — why things are the way they are.
 e2e/               Playwright smoke tests.
 scripts/           setup-assets.mjs — self-hosts the MediaPipe WASM and models.
+training/          Python: ingest → augment → train → evaluate → export ONNX packs.
 ```
 
 **Recording training data:** `npm run dev` then open `/recorder.html`. It captures hand
@@ -64,23 +97,28 @@ Everything after the camera happens on your device. Nothing is uploaded. See
 
 These are **real and documented**, not hidden. Full detail in [`docs/AUDIT.md`](docs/AUDIT.md).
 
-- **Left-handed signers are not supported.** The model has no handedness invariance (M1).
-- **The hand must be held roughly upright.** No rotation invariance (M2).
-- **Transitional poses produce spurious letters.** There is no "no sign" class (M4).
+- **No trained model ships with the repo.** Until you train one the app runs the v1 fallback,
+  which has all the defects below. It says so on screen.
 - **The Dictionary shows no images.** None of the referenced files exist (A1).
 - **The in-app accuracy test is not a benchmark.** It measures one person in one session and
-  cannot predict performance for anyone else (A3).
+  cannot predict performance for anyone else (A3). Real evaluation lives in `training/`.
+- **J and Z are unreliable.** They require motion; the frame-counting state machine that
+  handles them is replaced by CTC in Phase 3.
+
+Fixed in Phase 2, once a pack is installed: left-handed signers (M1), depth noise (M3),
+spurious letters during transitions (M4, M5), and the 2.5 MB model download (M6 — now
+524 KB int8).
 
 ## Roadmap
 
-| Phase | Delivers                                                                                                                                                           | Status  |
-| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- |
-| **0** | Monorepo, tests, CI, audit, privacy statement — behaviour unchanged                                                                                                | ✅ Done |
-| **1** | MediaPipe Tasks Vision, two hands, pose, Web Worker, landmark recorder                                                                                             | ✅ Done |
-| **2** | Retrained model with handedness/rotation invariance and a `none` class. **`geometricFix` deleted.** Signer-independent evaluation as a CI gate. Dictionary images. |         |
-| **3** | Continuous fingerspelling via CTC. J/Z state machine and dwell timer removed.                                                                                      |         |
-| **4** | 250 word-level signs, two-handed                                                                                                                                   |         |
-| **5** | Indian Sign Language, custom user signs, offline PWA                                                                                                               |         |
+| Phase | Delivers                                                                                         | Status  |
+| ----- | ------------------------------------------------------------------------------------------------ | ------- |
+| **0** | Monorepo, tests, CI, audit, privacy statement — behaviour unchanged                              | ✅ Done |
+| **1** | MediaPipe Tasks Vision, two hands, pose, Web Worker, landmark recorder                           | ✅ Done |
+| **2** | Training pipeline, normalisation, `none` class, ONNX packs, signer-independent evaluation        | ✅ Done |
+| **3** | Continuous fingerspelling via CTC. J/Z state machine and dwell timer removed. Dictionary images. |         |
+| **4** | 250 word-level signs, two-handed                                                                 |         |
+| **5** | Indian Sign Language, custom user signs, offline PWA                                             |         |
 
 ## Data and licensing
 

@@ -91,15 +91,30 @@ export class TranslatorPage {
     this.#renderSentence(this.#sentence.text);
 
     this.#recognition = new RecognitionClient({
-      onReady: (labelCount) => {
-        this.#setStatus(`✅ Model ready — ${labelCount} signs loaded`, 'ready');
+      onReady: (info) => {
+        if (info.pipeline === 'v2') {
+          this.#setStatus(`✅ ${info.packName} — ${info.labelCount} signs`, 'ready');
+        } else {
+          // The legacy path still runs the correction heuristics. Say so, rather than
+          // presenting it as equivalent to a trained pack.
+          this.#setStatus(
+            `⚠ Legacy model — ${info.labelCount} signs. Train a model pack for accurate results.`,
+            'error',
+          );
+        }
+        // Show which pipeline is live immediately. Waiting for the first camera frame
+        // would leave the debug panel blank exactly when someone is checking whether
+        // their newly installed pack took effect.
+        this.#renderPerf();
       },
       onResult: (result) => {
         if (this.#debugVisible) {
           this.#dbgRaw.textContent = result.rawLabel ?? '—';
           this.#dbgFixed.textContent = result.letter === NO_PREDICTION ? '—' : result.letter;
           this.#dbgConf.textContent =
-            result.confidence === null ? '—' : `${(result.confidence * 100).toFixed(1)}%`;
+            result.confidence === null
+              ? '—'
+              : `${(result.confidence * 100).toFixed(1)}% (${result.reason ?? '—'})`;
         }
         if (result.letter !== NO_PREDICTION) this.#accuracyTest.observe(result.letter);
         this.#renderLetter(result.letter, result.timestampMs);
@@ -166,7 +181,11 @@ export class TranslatorPage {
     // The v1 model classifies one hand. Both are tracked from Phase 1 so that the
     // word-level model in Phase 4 needs no further vision changes.
     const primary = selectPrimaryHand(frame.hands);
-    const submitted = this.#recognition.submit(primary?.landmarks ?? null, frame.timestampMs);
+    const submitted = this.#recognition.submit(
+      primary?.landmarks ?? null,
+      frame.timestampMs,
+      primary?.handedness ?? 'right',
+    );
 
     // A dropped frame still advances the commit timer, otherwise the hold bar would
     // stall on slow devices even though the user is holding the sign correctly.
@@ -202,7 +221,8 @@ export class TranslatorPage {
     const total = client.processedFrames + client.droppedFrames;
     const dropRate = total === 0 ? 0 : Math.round((client.droppedFrames / total) * 100);
     this.#dbgPerf.textContent =
-      `${this.#handsSeen} hand(s) · pose ${this.#landmarker.hasPose ? 'on' : 'off'} · ` +
+      `${client.pipeline} · ${this.#handsSeen} hand(s) · ` +
+      `pose ${this.#landmarker.hasPose ? 'on' : 'off'} · ` +
       `${client.processedFrames} frames · ${dropRate}% dropped`;
   }
 

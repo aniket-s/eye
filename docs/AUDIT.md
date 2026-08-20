@@ -21,14 +21,34 @@ Architecture: scikit-learn `MLPClassifier`, `63 → 256 → 256 → 128 → 27`,
 Input: 21 landmarks × (x, y, z), wrist-origin, divided by the 3D wrist→middle-MCP distance.
 Labels: 26 letters plus `space`.
 
-| id     | Finding                                                                                                                                                                                                     | Status                                              |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| **M1** | **No handedness invariance.** A left-handed signer produces a mirrored feature vector the model has never seen. Asserted by `landmarkVector.test.ts`.                                                       | 🔴 Phase 2                                          |
-| **M2** | **No rotation invariance.** Only translation and scale are normalised, so a 30° tilt moves the vector off-manifold. Asserted by `landmarkVector.test.ts`.                                                   | 🔴 Phase 2                                          |
-| **M3** | **`z` is included.** MediaPipe's normalised `z` is weakly calibrated and depth-ambiguous from a single view. Every top competition solution drops it.                                                       | 🔴 Phase 2                                          |
-| **M4** | **No negative class.** Only `space` exists, and it is suppressed before display. Every transitional pose between two letters is force-classified as a letter. The largest single source of spurious output. | 🔴 Phase 2                                          |
-| **M5** | **Confidence gate is ineffective.** `0.45` on an uncalibrated softmax. An overfit MLP with no negative class is _confidently_ wrong on off-manifold input, so this filters far less than it appears to.     | 🔴 Phase 2                                          |
-| **M6** | **2.5 MB of JSON for 115k parameters** (~22 bytes/param), parsed on the main thread. An int8 ONNX export is ~250 KB.                                                                                        | 🟡 Parse moved to the worker; size fixed in Phase 2 |
+| id     | Finding                                                                                                                                                                                                     | Status                                    |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| **M1** | **No handedness invariance.** A left-handed signer produces a mirrored feature vector the model has never seen. Asserted by `landmarkVector.test.ts`.                                                       | 🟢 Handedness canonicalisation            |
+| **M2** | **Rotation.** Originally filed as "no rotation invariance". That framing was wrong — see §2b.                                                                                                               | 🟢 Reframed — see below                   |
+| **M3** | **`z` is included.** MediaPipe's normalised `z` is weakly calibrated and depth-ambiguous from a single view. Every top competition solution drops it.                                                       | 🟢 `z` dropped                            |
+| **M4** | **No negative class.** Only `space` exists, and it is suppressed before display. Every transitional pose between two letters is force-classified as a letter. The largest single source of spurious output. | 🟢 `none` class + rejection               |
+| **M5** | **Confidence gate is ineffective.** `0.45` on an uncalibrated softmax. An overfit MLP with no negative class is _confidently_ wrong on off-manifold input, so this filters far less than it appears to.     | 🟢 Margin + energy + smoothing            |
+| **M6** | **2.5 MB of JSON for 115k parameters** (~22 bytes/param), parsed on the main thread. An int8 ONNX export is ~250 KB.                                                                                        | 🟢 524 KB int8 ONNX, parsed in the worker |
+
+### 2b. Correction to M2 — rotation must NOT be normalised
+
+The original audit listed missing rotation invariance as a defect. Building the fix
+showed that framing was wrong, and it is worth recording why.
+
+Several ASL letters differ **only** by orientation:
+
+- **K** and **P** are the same handshape; P points downward.
+- **G** and **Q** are the same handshape; Q points downward.
+- **H** and **U** are the same handshape at different angles.
+
+Canonicalising rotation would merge each of those pairs into a single class and make
+the letters unreadable. Two independent top solutions in Google's sign-recognition
+competitions report the same result: explicit rotation canonicalisation did not help.
+
+The v2 normaliser therefore **preserves** orientation as signal and buys robustness to
+incidental tilt through bounded rotation augmentation (±25°, well clear of the ~90°
+that separates K from P). `normalise.test.ts` asserts rotation is preserved, which
+looks like the opposite of a fix until you know why.
 
 ---
 
@@ -69,9 +89,13 @@ The constants were tuned against one hand, one camera, one distance, one lightin
 not comparable across branches. `geometricFix` also computes palm scale in 2D while
 `landmarksToVector` uses 3D for the same conceptual quantity.
 
-**Resolution:** deleted in Phase 2, not extended. Correct normalisation plus a `none` class
-makes all of it unnecessary. Status: 🟡 isolated in `packages/core/src/legacy/`, fully
-characterised by tests.
+**Resolution:** the v2 pipeline (`HandshapeRecognizer`) contains no correction
+heuristics at all, and `e2e/pack.spec.ts` asserts they are bypassed whenever a model
+pack is installed.
+
+Status: 🟡 — the code still exists, because the app falls back to v1 when no pack is
+present, which is what a fresh clone looks like. **Training a model pack retires it.**
+The characterisation tests exist so that deletion is measurable rather than hopeful.
 
 ---
 

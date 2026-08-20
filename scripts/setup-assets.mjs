@@ -96,24 +96,32 @@ async function loadLock() {
   }
 }
 
-async function copyWasm() {
-  if (!(await exists(WASM_SOURCE))) {
-    throw new Error(
-      'MediaPipe WASM not found. Run `npm install` first — @mediapipe/tasks-vision ships it.',
-    );
+async function copyRuntime(name, source, destination, files, hint) {
+  if (!(await exists(source))) {
+    throw new Error(`${name} WASM not found. Run \`npm install\` first — ${hint}`);
   }
-  await mkdir(WASM_DEST, { recursive: true });
+  await mkdir(destination, { recursive: true });
 
   let total = 0;
-  for (const file of WASM_FILES) {
-    const from = join(WASM_SOURCE, file);
-    const to = join(WASM_DEST, file);
+  for (const file of files) {
+    const from = join(source, file);
+    const to = join(destination, file);
     await copyFile(from, to);
     const { size } = await stat(to);
     total += size;
     console.log(`  ✓ ${file} (${mb(size)})`);
   }
-  console.log(`  WASM runtime: ${mb(total)} — gzip will bring this to roughly a third.`);
+  console.log(`  ${name}: ${mb(total)} — gzip brings this to roughly a third.`);
+}
+
+async function copyWasm() {
+  await copyRuntime(
+    'MediaPipe',
+    WASM_SOURCE,
+    WASM_DEST,
+    WASM_FILES,
+    '@mediapipe/tasks-vision ships it.',
+  );
 }
 
 async function fetchModel(model, lock) {

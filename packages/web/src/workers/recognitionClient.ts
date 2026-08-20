@@ -19,10 +19,17 @@ export interface RecognitionResultMessage {
   readonly letter: string;
   readonly rawLabel: string | null;
   readonly confidence: number | null;
+  readonly reason: string | null;
+}
+
+export interface ReadyInfo {
+  readonly labelCount: number;
+  readonly pipeline: 'v1' | 'v2';
+  readonly packName?: string;
 }
 
 export interface RecognitionClientOptions {
-  readonly onReady: (labelCount: number) => void;
+  readonly onReady: (info: ReadyInfo) => void;
   readonly onResult: (result: RecognitionResultMessage) => void;
   readonly onError: (message: string) => void;
 }
@@ -34,6 +41,7 @@ export class RecognitionClient {
   #scratch = new Float32Array(HAND_BUFFER_LENGTH);
 
   #ready = false;
+  #pipeline: 'v1' | 'v2' = 'v1';
   #inFlight = false;
   #seq = 0;
   #droppedFrames = 0;
@@ -57,6 +65,11 @@ export class RecognitionClient {
   /** True once the model has loaded and frames will be processed. */
   get isReady(): boolean {
     return this.#ready;
+  }
+
+  /** Which recognition pipeline the worker settled on. */
+  get pipeline(): 'v1' | 'v2' {
+    return this.#pipeline;
   }
 
   /** Frames skipped because the worker was busy. */
@@ -84,7 +97,11 @@ export class RecognitionClient {
    *
    * @returns `true` if the frame was sent, `false` if it was dropped.
    */
-  submit(landmarks: HandLandmarks | null, timestampMs: number): boolean {
+  submit(
+    landmarks: HandLandmarks | null,
+    timestampMs: number,
+    handedness: 'left' | 'right' = 'right',
+  ): boolean {
     if (!this.#ready) return false;
 
     if (this.#inFlight) {
@@ -96,7 +113,7 @@ export class RecognitionClient {
     this.#inFlight = true;
 
     if (landmarks === null) {
-      this.#post({ type: 'frame', seq: this.#seq, timestampMs, landmarks: null });
+      this.#post({ type: 'frame', seq: this.#seq, timestampMs, landmarks: null, handedness });
       return true;
     }
 
@@ -104,7 +121,13 @@ export class RecognitionClient {
     const buffer = packLandmarks(landmarks, this.#scratch);
     this.#scratch = new Float32Array(HAND_BUFFER_LENGTH);
     this.#worker.postMessage(
-      { type: 'frame', seq: this.#seq, timestampMs, landmarks: buffer } satisfies WorkerRequest,
+      {
+        type: 'frame',
+        seq: this.#seq,
+        timestampMs,
+        landmarks: buffer,
+        handedness,
+      } satisfies WorkerRequest,
       [buffer.buffer],
     );
     return true;
@@ -125,7 +148,12 @@ export class RecognitionClient {
     switch (message.type) {
       case 'ready':
         this.#ready = true;
-        this.#options.onReady(message.labelCount);
+        this.#pipeline = message.pipeline;
+        this.#options.onReady({
+          labelCount: message.labelCount,
+          pipeline: message.pipeline,
+          ...(message.packName === undefined ? {} : { packName: message.packName }),
+        });
         return;
       case 'error':
         this.#ready = false;
@@ -143,6 +171,7 @@ export class RecognitionClient {
           letter: message.letter,
           rawLabel: message.rawLabel,
           confidence: message.confidence,
+          reason: message.reason,
         });
     }
   }

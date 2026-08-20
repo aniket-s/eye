@@ -11,6 +11,28 @@ export { relu, softmax, argmax } from './math/activations.js';
 export { MIN_SCALE, distance2d, distance3d, palmScale2d, palmScale3d } from './math/geometry.js';
 
 export { landmarksToVector, LANDMARK_VECTOR_LENGTH } from './features/landmarkVector.js';
+export { normaliseHand, mirrorHand, FEATURE_LENGTH } from './features/normalise.js';
+
+export {
+  energyScore,
+  topMargin,
+  judge,
+  ProbabilitySmoother,
+  NONE_LABEL,
+  DEFAULT_THRESHOLDS,
+  type RejectionThresholds,
+  type Verdict,
+} from './decode/rejection.js';
+
+export {
+  parseManifest,
+  packRef,
+  NORMALISATION_SCHEME,
+  type PackManifest,
+  type PackTask,
+  type PackInput,
+  type PackMetrics,
+} from './registry/manifest.js';
 export { MlpClassifier } from './model/mlp.js';
 
 export { SentenceBuffer, type SentenceListener } from './sentence/sentenceBuffer.js';
@@ -33,6 +55,13 @@ export {
   type HoldCommitOptions,
   type HoldCommitResult,
 } from './temporal/holdCommit.js';
+
+export {
+  HandshapeRecognizer,
+  type Classifier,
+  type HandshapeRecognizerOptions,
+  type HandshapeResult,
+} from './pipeline/handshapeRecognizer.js';
 
 export {
   LegacyRecognizer,

@@ -45,6 +45,40 @@ jobs:
           path: coverage/
           retention-days: 7
 
+  training:
+    name: Training pipeline tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install training dependencies
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu &&
+          pip install -e "training[dev]" onnx onnxruntime onnxscript
+
+      # Regenerate the parity fixtures from TypeScript, then assert Python matches.
+      # This is the guard against train/inference skew: change one normaliser without
+      # the other and the build fails here.
+      - name: Regenerate parity fixtures
+        run: npm run fixtures:parity
+
+      - name: Fail if fixtures drifted
+        run: git diff --exit-code training/fixtures/
+
+      - name: Run training tests
+        run: cd training && python -m pytest -q
+
   e2e:
     name: End-to-end smoke tests
     runs-on: ubuntu-latest

@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.0.1",
-    "@mudrapragyan/core": "*"
+    "@mudrapragyan/core": "*",
+    "onnxruntime-web": "^1.27.0"
   },
   "devDependencies": {
     "vite": "^5.4.9"

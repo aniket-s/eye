@@ -1,0 +1,53 @@
+{
+  "id": "synthetic-fingerspell",
+  "version": "1.0.0",
+  "name": "Synthetic (pipeline test)",
+  "language": "ase",
+  "task": "static-handshape",
+  "labels": [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "I",
+    "K",
+    "L",
+    "M",
+    "N",
+    "O",
+    "P",
+    "Q",
+    "R",
+    "S",
+    "T",
+    "U",
+    "V",
+    "W",
+    "X",
+    "Y",
+    "none"
+  ],
+  "input": {
+    "featureLength": 42,
+    "hands": 1,
+    "normalisation": "centroid-rms-v2"
+  },
+  "thresholds": {
+    "minProbability": 0.6,
+    "minMargin": 0.15,
+    "maxEnergy": null
+  },
+  "metrics": {
+    "macroF1": 0.84069,
+    "worstSliceF1": 0.830243,
+    "ece": 0.093211,
+    "testSigners": 2
+  },
+  "modelFile": "model.onnx",
+  "sha256": "119c968c06193ea882e1cc72c91aefb2aa6cce0d92fef65bd3fefa649fab0e03",
+  "licence": "synthetic (no real data)"
+}
