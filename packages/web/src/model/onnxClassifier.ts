@@ -25,7 +25,8 @@ import { softmax, type PackManifest } from '@mudrapragyan/core';
 
 let configured = false;
 
-function configureRuntime(): void {
+/** Configure the shared runtime once. Exported so the sequence classifier reuses it. */
+export function configureOrtRuntime(): void {
   if (configured) return;
   ort.env.wasm.numThreads = 1;
   // The runtime logs a warning per session about threading; we have chosen 1 thread
@@ -60,7 +61,7 @@ export class OnnxClassifier {
    *   mismatch would otherwise produce confident nonsense.
    */
   static async create(modelBytes: ArrayBuffer, manifest: PackManifest): Promise<OnnxClassifier> {
-    configureRuntime();
+    configureOrtRuntime();
 
     const session = await ort.InferenceSession.create(modelBytes, {
       executionProviders: ['wasm'],

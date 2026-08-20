@@ -79,6 +79,14 @@ jobs:
       - name: Run training tests
         run: cd training && python -m pytest -q
 
+      # The dictionary diagrams are generated, so a change to the hand model must
+      # regenerate them rather than leave the committed art stale.
+      - name: Regenerate dictionary diagrams
+        run: npm run diagrams
+
+      - name: Fail if diagrams drifted
+        run: git diff --exit-code packages/web/public/alphabets packages/web/public/numbers
+
   e2e:
     name: End-to-end smoke tests
     runs-on: ubuntu-latest

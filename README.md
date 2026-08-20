@@ -2,7 +2,7 @@
 
 **Sign language recognition that runs entirely in your browser.** No server, no upload, no cost.
 
-> **Status: Phases 0–2 complete.** The application has been restructured from a single 1,325-line
+> **Status: Phases 0–3 complete.** The application has been restructured from a single 1,325-line
 > HTML file into a tested monorepo, the vision layer rebuilt on MediaPipe Tasks Vision, and a
 > complete training pipeline built with signer-independent evaluation and ONNX model packs.
 >
@@ -56,10 +56,18 @@ python -m mudra_train.train --data ./recordings --out ../packages/web/public/mod
 **Best quality — FSboard.** 3M+ characters from 147 Deaf signers, CC BY 4.0. Needs a free
 Kaggle account. Point `--data` at the extracted landmarks.
 
+**Continuous fingerspelling** (no pausing between letters, and J/Z work) uses the CTC
+model instead:
+
+```bash
+python -m mudra_train.train_ctc --data ./recordings --out ../packages/web/public/models/asl-fingerspell
+```
+
 **Just checking the pipeline runs:**
 
 ```bash
-npm run train:synthetic        # procedural fixtures — NOT a usable model
+npm run train:synthetic        # static model, procedural fixtures — NOT usable
+npm run train:synthetic:ctc    # continuous model, same caveat
 ```
 
 Training always evaluates on **held-out signers** and reports per-slice scores, so a model
@@ -102,23 +110,23 @@ These are **real and documented**, not hidden. Full detail in [`docs/AUDIT.md`](
 - **The Dictionary shows no images.** None of the referenced files exist (A1).
 - **The in-app accuracy test is not a benchmark.** It measures one person in one session and
   cannot predict performance for anyone else (A3). Real evaluation lives in `training/`.
-- **J and Z are unreliable.** They require motion; the frame-counting state machine that
-  handles them is replaced by CTC in Phase 3.
+- **Word-level signs are not supported.** Fingerspelling only, until Phase 4.
+- **Word categories in the Dictionary have no artwork.** The alphabet and numbers do.
 
-Fixed in Phase 2, once a pack is installed: left-handed signers (M1), depth noise (M3),
-spurious letters during transitions (M4, M5), and the 2.5 MB model download (M6 — now
-524 KB int8).
+Fixed once a pack is installed: left-handed signers (M1), depth noise (M3), spurious
+letters during transitions (M4, M5), the 2.5 MB model download (M6 — now ~520 KB int8),
+and, with a CTC pack, the dwell timer and the J/Z state machine (J1–J3).
 
 ## Roadmap
 
-| Phase | Delivers                                                                                         | Status  |
-| ----- | ------------------------------------------------------------------------------------------------ | ------- |
-| **0** | Monorepo, tests, CI, audit, privacy statement — behaviour unchanged                              | ✅ Done |
-| **1** | MediaPipe Tasks Vision, two hands, pose, Web Worker, landmark recorder                           | ✅ Done |
-| **2** | Training pipeline, normalisation, `none` class, ONNX packs, signer-independent evaluation        | ✅ Done |
-| **3** | Continuous fingerspelling via CTC. J/Z state machine and dwell timer removed. Dictionary images. |         |
-| **4** | 250 word-level signs, two-handed                                                                 |         |
-| **5** | Indian Sign Language, custom user signs, offline PWA                                             |         |
+| Phase | Delivers                                                                                          | Status  |
+| ----- | ------------------------------------------------------------------------------------------------- | ------- |
+| **0** | Monorepo, tests, CI, audit, privacy statement — behaviour unchanged                               | ✅ Done |
+| **1** | MediaPipe Tasks Vision, two hands, pose, Web Worker, landmark recorder                            | ✅ Done |
+| **2** | Training pipeline, normalisation, `none` class, ONNX packs, signer-independent evaluation         | ✅ Done |
+| **3** | Continuous fingerspelling via CTC. J/Z state machine and dwell timer removed. Dictionary artwork. | ✅ Done |
+| **4** | 250 word-level signs, two-handed                                                                  |         |
+| **5** | Indian Sign Language, custom user signs, offline PWA                                              |         |
 
 ## Data and licensing
 

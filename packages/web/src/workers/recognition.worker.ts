@@ -17,6 +17,7 @@
  * Installing a trained pack retires the fallback. See `packages/core/src/legacy/README.md`.
  */
 import {
+  ContinuousRecognizer,
   HandshapeRecognizer,
   LandmarkView,
   LegacyRecognizer,
@@ -25,6 +26,7 @@ import {
 } from '@mudrapragyan/core';
 import type { Handedness, MlpWeights } from '@mudrapragyan/core';
 import { OnnxClassifier } from '../model/onnxClassifier.js';
+import { OnnxSequenceClassifier } from '../model/onnxSequenceClassifier.js';
 import { loadPack } from '../model/pack.js';
 import type { WorkerRequest, WorkerResponse } from './protocol.js';
 
@@ -34,6 +36,7 @@ const scope = self as unknown as DedicatedWorkerGlobalScope;
 const view = new LandmarkView();
 
 let modern: HandshapeRecognizer | null = null;
+let continuous: ContinuousRecognizer | null = null;
 let legacy: LegacyRecognizer | null = null;
 
 function post(message: WorkerResponse): void {
@@ -49,6 +52,23 @@ function post(message: WorkerResponse): void {
  */
 async function init(fallbackModelUrl: string): Promise<void> {
   const pack = await loadPack();
+
+  if (pack !== null && pack.manifest.task === 'temporal-ctc') {
+    const classifier = await OnnxSequenceClassifier.create(pack.modelBytes, pack.manifest);
+    continuous = new ContinuousRecognizer(classifier, {
+      // The window length is the model's, not the app's — a pack trained on 64 frames
+      // must be fed 64.
+      windowFrames: pack.manifest.input.windowFrames ?? 64,
+      featureLength: pack.manifest.input.featureLength,
+    });
+    post({
+      type: 'ready',
+      labelCount: pack.manifest.labels.filter((label) => label !== '').length,
+      pipeline: 'ctc',
+      packName: `${pack.manifest.name} v${pack.manifest.version}`,
+    });
+    return;
+  }
 
   if (pack !== null) {
     const classifier = await OnnxClassifier.create(pack.modelBytes, pack.manifest);
@@ -92,11 +112,34 @@ scope.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
 
     case 'reset':
       modern?.reset();
+      continuous?.reset();
       legacy?.reset();
       return;
 
     case 'frame': {
       const landmarks = message.landmarks === null ? null : view.read(message.landmarks);
+
+      if (continuous !== null) {
+        void continuous
+          .push(landmarks, message.handedness)
+          .then((result) => {
+            post({
+              type: 'continuous',
+              seq: message.seq,
+              timestampMs: message.timestampMs,
+              committed: result.committed.join(''),
+              provisional: result.provisional.join(''),
+              confidence: result.confidence,
+            });
+          })
+          .catch((error: unknown) => {
+            post({
+              type: 'error',
+              message: error instanceof Error ? error.message : 'Inference failed.',
+            });
+          });
+        return;
+      }
 
       if (modern !== null) {
         void modern

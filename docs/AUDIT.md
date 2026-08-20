@@ -103,11 +103,11 @@ The characterisation tests exist so that deletion is measurable rather than hope
 
 The instinct is right — J and Z are the only motion-defined letters — but:
 
-| id     | Finding                                                                                                                                                                                  | Status     |
-| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| **J1** | `isZShape` accepts **both** stroke directions (`fwd \|\| rev`), roughly doubling the false-positive rate. A horizontal wiggle reads as Z. Asserted by `jzStateMachine.test.ts`.          | 🔴 Phase 3 |
-| **J2** | Frames are counted, not timed. Every threshold is frame-rate dependent and drifts under CPU load. The same physical motion at half the sample rate fails to register — asserted by test. | 🔴 Phase 3 |
-| **J3** | A confirmed detection **latches the output for 32 frames** regardless of what the hand does next.                                                                                        | 🔴 Phase 3 |
+| id     | Finding                                                                                                                                                                                  | Status                   |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| **J1** | `isZShape` accepts **both** stroke directions (`fwd \|\| rev`), roughly doubling the false-positive rate. A horizontal wiggle reads as Z. Asserted by `jzStateMachine.test.ts`.          | 🔴 Phase 3               |
+| **J2** | Frames are counted, not timed. Every threshold is frame-rate dependent and drifts under CPU load. The same physical motion at half the sample rate fails to register — asserted by test. | 🟢 CTC + ms-based timing |
+| **J3** | A confirmed detection **latches the output for 32 frames** regardless of what the hand does next.                                                                                        | 🟢 No latch              |
 
 **Resolution:** CTC decoding in Phase 3 makes J and Z ordinary labels. The state machine is
 deleted entirely.
@@ -141,8 +141,16 @@ There is no probability-level smoothing, which is the correct place to filter. C
 timer rather than an evidence test. A v1 off-by-one also means `framesToCommit + 1` frames are
 actually required.
 
-**Resolution:** Phase 3 — median filtering over a probability queue, energy-score rejection, and
-CTC blank-transition commit wrapped in LocalAgreement-2.
+**Resolved (Phases 2 and 3).** Probability-level median filtering and energy-score
+rejection landed in Phase 2; Phase 3 replaced the dwell timer entirely. CTC emits a letter
+at the frame where the argmax transitions into it — a peak detector, not a stopwatch —
+and `LocalAgreementCommitter` commits text once consecutive hypotheses agree.
+
+Two things this unlocked that a dwell timer could not express:
+
+- **Doubled letters.** A dwell timer cannot tell one long `L` from two, so "HELLO" was
+  unspellable. CTC's blank symbol exists precisely to separate them.
+- **Natural pace.** No two-thirds-of-a-second pause per letter.
 
 ---
 
@@ -150,7 +158,7 @@ CTC blank-transition commit wrapped in LocalAgreement-2.
 
 | id      | Finding                                                                                                                                                                                                                    | Status                                                           |
 | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| **A1**  | **The Dictionary is 100% broken.** Images are referenced at `alphabets/a.jpg` etc.; none of those directories exist. All ~150 cards fall through to the 🤟 placeholder.                                                    | 🟡 Pinned by e2e test; fixed Phase 2 with CC0 imagery            |
+| **A1**  | **The Dictionary was 100% broken.** Images were referenced at `alphabets/a.jpg` etc.; none existed. Alphabet and number cards now show generated vector diagrams; word categories still lack artwork (Phase 4).            | 🟢 37 generated SVG diagrams for A–Z and 0–10                    |
 | **A2**  | **No training pipeline in the repo.** The error string reads _"run Script 2 first"_. No dataset, training code, eval, or model card. The model is an unversioned blob nobody can regenerate.                               | 🔴 Phase 2                                                       |
 | **A3**  | **"Test Model Accuracy" is not evaluation.** Same user, camera and session; no held-out signers, no confusion matrix. **The most dangerous item** — it produces a number that looks like validation and hides regressions. | 🟡 On-screen caveat added; real eval Phase 2                     |
 | **A4**  | Single 1,325-line HTML file. No modules, build, tests, types, linting, or CI.                                                                                                                                              | 🟢 Phase 0                                                       |

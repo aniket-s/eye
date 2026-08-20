@@ -57,6 +57,23 @@ export {
 } from './temporal/holdCommit.js';
 
 export {
+  BLANK_INDEX,
+  ctcGreedyDecode,
+  commonPrefix,
+  levenshtein,
+  characterErrorRate,
+  LocalAgreementCommitter,
+  type CtcDecodeResult,
+} from './decode/ctc.js';
+
+export {
+  ContinuousRecognizer,
+  type SequenceClassifier,
+  type ContinuousRecognizerOptions,
+  type ContinuousResult,
+} from './pipeline/continuousRecognizer.js';
+
+export {
   HandshapeRecognizer,
   type Classifier,
   type HandshapeRecognizerOptions,

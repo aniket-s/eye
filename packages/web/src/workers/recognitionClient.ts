@@ -24,13 +24,22 @@ export interface RecognitionResultMessage {
 
 export interface ReadyInfo {
   readonly labelCount: number;
-  readonly pipeline: 'v1' | 'v2';
+  readonly pipeline: 'v1' | 'v2' | 'ctc';
   readonly packName?: string;
+}
+
+/** Emitted by continuous (CTC) packs. */
+export interface ContinuousMessage {
+  readonly timestampMs: number;
+  readonly committed: string;
+  readonly provisional: string;
+  readonly confidence: number;
 }
 
 export interface RecognitionClientOptions {
   readonly onReady: (info: ReadyInfo) => void;
   readonly onResult: (result: RecognitionResultMessage) => void;
+  readonly onContinuous?: (result: ContinuousMessage) => void;
   readonly onError: (message: string) => void;
 }
 
@@ -41,7 +50,7 @@ export class RecognitionClient {
   #scratch = new Float32Array(HAND_BUFFER_LENGTH);
 
   #ready = false;
-  #pipeline: 'v1' | 'v2' = 'v1';
+  #pipeline: 'v1' | 'v2' | 'ctc' = 'v1';
   #inFlight = false;
   #seq = 0;
   #droppedFrames = 0;
@@ -68,7 +77,7 @@ export class RecognitionClient {
   }
 
   /** Which recognition pipeline the worker settled on. */
-  get pipeline(): 'v1' | 'v2' {
+  get pipeline(): 'v1' | 'v2' | 'ctc' {
     return this.#pipeline;
   }
 
@@ -159,6 +168,17 @@ export class RecognitionClient {
         this.#ready = false;
         this.#inFlight = false;
         this.#options.onError(message.message);
+        return;
+      case 'continuous':
+        this.#inFlight = false;
+        if (message.seq !== this.#seq) return;
+        this.#processedFrames++;
+        this.#options.onContinuous?.({
+          timestampMs: message.timestampMs,
+          committed: message.committed,
+          provisional: message.provisional,
+          confidence: message.confidence,
+        });
         return;
       case 'result':
         this.#inFlight = false;

@@ -28,7 +28,9 @@
     "setup:assets": "node scripts/setup-assets.mjs",
     "fixtures:parity": "npm run build --workspace @mudrapragyan/core && node scripts/generate-parity-fixtures.mjs",
     "train:synthetic": "cd training && PYTHONPATH=. python3 -m mudra_train.train --synthetic --out ../packages/web/public/models/asl-fingerspell",
-    "test:python": "cd training && PYTHONPATH=. python3 -m pytest -q"
+    "test:python": "cd training && PYTHONPATH=. python3 -m pytest -q",
+    "train:synthetic:ctc": "cd training && PYTHONPATH=. python3 -m mudra_train.train_ctc --synthetic --out ../packages/web/public/models/asl-fingerspell",
+    "diagrams": "cd training && PYTHONPATH=. python3 -m mudra_train.export.diagrams --out ../packages/web/public"
   },
   "devDependencies": {
     "@eslint/js": "^9.12.0",

@@ -32,8 +32,14 @@ export type WorkerResponse =
   | {
       readonly type: 'ready';
       readonly labelCount: number;
-      /** Which pipeline is live. `v1` still runs the legacy correction heuristics. */
-      readonly pipeline: 'v1' | 'v2';
+      /**
+       * Which pipeline is live.
+       *
+       * - `v1` — legacy MLP plus correction heuristics, used only when no pack exists.
+       * - `v2` — static handshape pack with proper normalisation and rejection.
+       * - `ctc` — continuous fingerspelling; no dwell timer, J and Z are ordinary labels.
+       */
+      readonly pipeline: 'v1' | 'v2' | 'ctc';
       /** Pack name, when a v2 pack is installed. */
       readonly packName?: string;
     }
@@ -47,4 +53,15 @@ export type WorkerResponse =
       readonly confidence: number | null;
       /** Why the frame was accepted or rejected, for the debug overlay. */
       readonly reason: string | null;
+    }
+  | {
+      /** Emitted by `temporal-ctc` packs, which decode whole windows. */
+      readonly type: 'continuous';
+      readonly seq: number;
+      readonly timestampMs: number;
+      /** Text the decoder is confident about. Only ever grows. */
+      readonly committed: string;
+      /** Current best guess for the tail, rendered greyed. */
+      readonly provisional: string;
+      readonly confidence: number;
     };

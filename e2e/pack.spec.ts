@@ -16,9 +16,14 @@ import { expect, test, type Page } from '@playwright/test';
  * are meaningless; what matters is that the plumbing runs end to end.
  */
 
-const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'pack');
+const HERE = dirname(fileURLToPath(import.meta.url));
+const FIXTURES = join(HERE, 'fixtures', 'pack');
 const manifest = readFileSync(join(FIXTURES, 'manifest.json'), 'utf8');
 const modelBytes = readFileSync(join(FIXTURES, 'model.onnx'));
+
+const CTC_FIXTURES = join(HERE, 'fixtures', 'ctc-pack');
+const ctcManifest = readFileSync(join(CTC_FIXTURES, 'manifest.json'), 'utf8');
+const ctcModelBytes = readFileSync(join(CTC_FIXTURES, 'model.onnx'));
 
 /** Serve the fixture pack at the path the app looks for. */
 async function installPack(page: Page, manifestBody = manifest): Promise<void> {
@@ -110,5 +115,63 @@ test.describe('v2 model pack', () => {
     await expect(page.locator('#modelStatus')).toContainText('has not been evaluated', {
       timeout: 30_000,
     });
+  });
+});
+
+test.describe('continuous fingerspelling (CTC)', () => {
+  /** Serve the CTC fixture pack at the id the app looks for. */
+  async function installCtcPack(page: Page): Promise<void> {
+    await page.route('**/models/asl-fingerspell/manifest.json', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: ctcManifest }),
+    );
+    await page.route('**/models/asl-fingerspell/model.onnx', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/octet-stream', body: ctcModelBytes }),
+    );
+  }
+
+  /**
+   * The critical difference from the static pack: this graph has a **dynamic frame
+   * axis**. The browser feeds a partial window while its buffer fills, so a graph that
+   * silently baked in the training window would work after two seconds and fail before
+   * that — the kind of bug that only appears on a real camera.
+   */
+  test('loads a temporal-ctc pack and reports the streaming pipeline', async ({ page }) => {
+    await installCtcPack(page);
+    await page.goto('/#translator');
+
+    const status = page.locator('#modelStatus');
+    await expect(status).toHaveClass(/ready/, { timeout: 60_000 });
+    await expect(status).toContainText('continuous');
+  });
+
+  test('retires the dwell timer, since CTC decides commits itself', async ({ page }) => {
+    await installCtcPack(page);
+    await page.goto('/#translator');
+    await expect(page.locator('#modelStatus')).toHaveClass(/ready/, { timeout: 60_000 });
+
+    // v1 made the user hold each letter for two thirds of a second and showed a
+    // progress bar counting it down. There is nothing to count any more.
+    await expect(page.locator('#holdPct')).toHaveText('—');
+    await expect(page.locator('#letterLabel')).toContainText('no need to pause');
+  });
+
+  test('reports the ctc pipeline in the debug overlay', async ({ page }) => {
+    await installCtcPack(page);
+    await page.goto('/#translator');
+    await expect(page.locator('#modelStatus')).toHaveClass(/ready/, { timeout: 60_000 });
+
+    await page.keyboard.press('d');
+    await expect(page.locator('#dbgPerf')).toContainText('ctc');
+  });
+
+  test('initialises the sequence model without console errors', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+
+    await installCtcPack(page);
+    await page.goto('/#translator');
+    await expect(page.locator('#modelStatus')).toHaveClass(/ready/, { timeout: 60_000 });
+
+    expect(errors).toEqual([]);
   });
 });

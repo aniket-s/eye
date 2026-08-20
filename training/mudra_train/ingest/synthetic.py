@@ -70,6 +70,10 @@ NONE_FRACTION = 0.15
 _FINGER_BASE_X = (-0.30, -0.10, 0.10, 0.28)
 _FINGER_LENGTHS = ((0.34, 0.22, 0.16), (0.38, 0.24, 0.17), (0.34, 0.22, 0.16), (0.26, 0.17, 0.13))
 
+#: Degrees each joint rotates at full curl (MCP, PIP, DIP). Sums to 180, so a fully
+#: curled finger folds back onto the palm.
+_JOINT_BEND_DEGREES = (55.0, 75.0, 50.0)
+
 
 def _build_hand(
     curls: tuple[float, float, float, float],
@@ -95,6 +99,11 @@ def _build_hand(
         )
 
     # Four fingers: index 5-8, middle 9-12, ring 13-16, pinky 17-20.
+    #
+    # Each joint rotates the finger's direction vector toward the palm. At full curl
+    # the three joints together fold the finger through ~180 degrees, so a fist reads
+    # as closed rather than merely shortened. Per-joint angles approximate real hand
+    # kinematics: the middle joint bends furthest.
     for finger in range(4):
         base_index = 5 + finger * 4
         base_x = _FINGER_BASE_X[finger]
@@ -103,12 +112,19 @@ def _build_hand(
 
         curl = curls[finger]
         x, y = base_x, base_y
-        # Each successive joint bends further, so a curled finger folds toward the palm.
-        angle = -np.pi / 2
-        for segment, length in enumerate(_FINGER_LENGTHS[finger]):
-            angle += curl * (np.pi / 2.6)
-            x += length * np.cos(angle - np.pi / 2) * 0.35
-            y += length * np.sin(angle)
+        # Fingers start pointing up the screen; y grows downward.
+        direction = np.array([0.0, -1.0])
+
+        for segment, (length, bend) in enumerate(
+            zip(_FINGER_LENGTHS[finger], _JOINT_BEND_DEGREES)
+        ):
+            theta = np.deg2rad(curl * bend)
+            rotation = np.array(
+                [[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]]
+            )
+            direction = rotation @ direction
+            x += float(direction[0]) * length
+            y += float(direction[1]) * length
             points[base_index + segment + 1] = (x, y, 0.0)
 
     if rotation_degrees:

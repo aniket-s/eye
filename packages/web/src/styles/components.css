@@ -163,3 +163,15 @@
   outline: 2px solid var(--teal);
   outline-offset: 2px;
 }
+
+/* ── Continuous (CTC) decoding ── */
+
+/*
+ * Provisional text: the decoder's current best guess for the tail, which may still
+ * change. Showing it dimmed and italic lets the user watch the system think, instead
+ * of seeing letters appear and silently rewrite themselves.
+ */
+.sentence-provisional {
+  opacity: 0.45;
+  font-style: italic;
+}

@@ -120,13 +120,36 @@ test.describe('dictionary', () => {
   });
 
   /**
-   * Pins the known-broken state from docs/AUDIT.md (A1): no dictionary images exist,
-   * so every card falls through to the placeholder. Phase 2 inverts this assertion.
+   * Inverts the Phase 0 assertion. Every alphabet and number card used to fall through
+   * to the 🤟 placeholder because none of the referenced images existed (A1); they are
+   * now generated vector diagrams.
    */
-  test('KNOWN ISSUE: every sign image is missing and shows the placeholder', async ({ page }) => {
+  test('shows a diagram for every letter and number', async ({ page }) => {
     await page.goto('/#dictionary');
-    const firstCard = page.locator('#sec-alphabets .sign-card').first();
-    await expect(firstCard.locator('.placeholder')).toBeVisible({ timeout: 15_000 });
+
+    for (const selector of ['#sec-alphabets', '#sec-numbers']) {
+      const cards = page.locator(`${selector} .sign-card`);
+      const count = await cards.count();
+      for (let i = 0; i < count; i++) {
+        await expect(cards.nth(i).locator('.placeholder')).toBeHidden({ timeout: 15_000 });
+      }
+    }
+  });
+
+  test('serves the diagrams as SVG so they stay sharp at any size', async ({ page }) => {
+    await page.goto('/#dictionary');
+    const image = page.locator('#sec-alphabets .sign-card img').first();
+    await expect(image).toHaveAttribute('src', /alphabets\/a\.svg$/);
+  });
+
+  /**
+   * Word categories still have no artwork — Phase 4 adds PopSign clips. Pinned so the
+   * gap is visible rather than forgotten.
+   */
+  test('KNOWN GAP: word signs still have no artwork', async ({ page }) => {
+    await page.goto('/#dictionary');
+    const card = page.locator('#sec-greetings .sign-card').first();
+    await expect(card.locator('.placeholder')).toBeVisible({ timeout: 15_000 });
   });
 });
 

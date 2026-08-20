@@ -1,0 +1,51 @@
+{
+  "id": "synthetic-fingerspell-ctc",
+  "version": "1.0.0",
+  "name": "Synthetic CTC (pipeline test)",
+  "language": "ase",
+  "task": "temporal-ctc",
+  "labels": [
+    "",
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "I",
+    "K",
+    "L",
+    "M",
+    "N",
+    "O",
+    "P",
+    "Q",
+    "R",
+    "S",
+    "T",
+    "U",
+    "W",
+    "Y"
+  ],
+  "input": {
+    "featureLength": 42,
+    "hands": 1,
+    "normalisation": "centroid-rms-v2",
+    "windowFrames": 64
+  },
+  "thresholds": {
+    "minProbability": 0.0,
+    "minMargin": 0.0,
+    "maxEnergy": null
+  },
+  "metrics": {
+    "macroF1": 0.920821,
+    "worstSliceF1": 0.920821,
+    "testSigners": 2
+  },
+  "modelFile": "model.onnx",
+  "sha256": "4ef583e18eeaa658408b9395d3a1624138a896df8f4d2f3cfa39b3a537097227",
+  "licence": "synthetic (no real data)"
+}

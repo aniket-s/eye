@@ -92,7 +92,13 @@ export class TranslatorPage {
 
     this.#recognition = new RecognitionClient({
       onReady: (info) => {
-        if (info.pipeline === 'v2') {
+        if (info.pipeline === 'ctc') {
+          this.#setStatus(`✅ ${info.packName} — continuous, ${info.labelCount} signs`, 'ready');
+          // CTC decides commits itself, so the hold bar has nothing to show.
+          this.#holdBar.style.width = '0%';
+          this.#holdPct.textContent = '—';
+          this.#letterLabel.textContent = 'Fingerspell continuously — no need to pause';
+        } else if (info.pipeline === 'v2') {
           this.#setStatus(`✅ ${info.packName} — ${info.labelCount} signs`, 'ready');
         } else {
           // The legacy path still runs the correction heuristics. Say so, rather than
@@ -118,6 +124,14 @@ export class TranslatorPage {
         }
         if (result.letter !== NO_PREDICTION) this.#accuracyTest.observe(result.letter);
         this.#renderLetter(result.letter, result.timestampMs);
+      },
+      onContinuous: (result) => {
+        this.#renderContinuous(result.committed, result.provisional);
+        if (this.#debugVisible) {
+          this.#dbgRaw.textContent = result.provisional || '—';
+          this.#dbgFixed.textContent = result.committed.slice(-12) || '—';
+          this.#dbgConf.textContent = `${(result.confidence * 100).toFixed(0)}% (ctc)`;
+        }
       },
       onError: (message) => this.#setStatus(`⚠ ${message}`, 'error'),
     });
@@ -224,6 +238,32 @@ export class TranslatorPage {
       `${client.pipeline} · ${this.#handsSeen} hand(s) · ` +
       `pose ${this.#landmarker.hasPose ? 'on' : 'off'} · ` +
       `${client.processedFrames} frames · ${dropRate}% dropped`;
+  }
+
+  /**
+   * Render committed and provisional text together.
+   *
+   * The provisional tail is the decoder's live guess. It is shown dimmed rather than
+   * withheld, so the latency is visible instead of feeling like lag.
+   */
+  #renderContinuous(committed: string, provisional: string): void {
+    if (committed.length === 0 && provisional.length === 0) {
+      this.#sentenceDisplay.textContent = SENTENCE_PLACEHOLDER;
+      this.#sentenceDisplay.className = 'sentence-text empty';
+      return;
+    }
+
+    this.#sentenceDisplay.className = 'sentence-text';
+    this.#sentenceDisplay.replaceChildren(document.createTextNode(committed));
+
+    if (provisional.length > 0) {
+      const tail = document.createElement('span');
+      tail.className = 'sentence-provisional';
+      tail.textContent = provisional;
+      this.#sentenceDisplay.append(tail);
+    }
+
+    this.#letterBig.textContent = provisional.at(-1) ?? committed.at(-1) ?? NO_PREDICTION;
   }
 
   #renderSentence(text: string): void {
