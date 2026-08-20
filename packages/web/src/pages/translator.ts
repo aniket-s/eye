@@ -7,6 +7,8 @@ import {
 import { requireElement } from '../dom.js';
 import { AccuracyTest } from '../features/accuracyTest.js';
 import { CustomSignsPanel } from '../features/customSigns.js';
+import { VocabularyMode } from '../features/vocabularyMode.js';
+import { WordSuggestions } from '../features/wordSuggestions.js';
 import { resolvePackId } from '../model/pack.js';
 import { speak } from '../speech.js';
 import {
@@ -54,6 +56,8 @@ export class TranslatorPage {
   readonly #hold = new TimedHoldCommitDetector();
   readonly #accuracyTest = new AccuracyTest();
   readonly #customSigns = new CustomSignsPanel();
+  readonly #words: WordSuggestions;
+  readonly #mode = new VocabularyMode();
   readonly #landmarker = new VisionLandmarker();
 
   #recognition: RecognitionClient | null = null;
@@ -61,6 +65,12 @@ export class TranslatorPage {
   #starting = false;
   #debugVisible = false;
   #handsSeen = 0;
+
+  constructor() {
+    // Constructed here rather than as a field initialiser because it needs the sentence
+    // buffer, and field order would make that dependency implicit.
+    this.#words = new WordSuggestions(this.#sentence);
+  }
 
   start(): void {
     this.#accuracyTest.start(() => this.#recognition?.reset());
@@ -113,6 +123,9 @@ export class TranslatorPage {
           // Only the static-handshape pipeline produces per-frame embeddings, so it is
           // the only one that can learn a new sign from a held pose.
           void this.#attachCustomSigns(info);
+          // Word correction wants this pack's error profile, so it weights substitutions
+          // by the mistakes this model actually makes.
+          this.#words.start(info.confusions);
         } else {
           // The legacy path still runs the correction heuristics. Say so, rather than
           // presenting it as equivalent to a trained pack.
@@ -137,7 +150,8 @@ export class TranslatorPage {
         }
         this.#customSigns.observe(result.embedding, result.timestampMs);
         if (result.letter !== NO_PREDICTION) this.#accuracyTest.observe(result.letter);
-        this.#renderLetter(result.letter, result.timestampMs);
+        // Show what the active vocabulary calls it; commit the same text to the sentence.
+        this.#renderLetter(result.display ?? result.letter, result.timestampMs);
       },
       onContinuous: (result) => {
         this.#renderContinuous(result.committed, result.provisional);
@@ -171,6 +185,11 @@ export class TranslatorPage {
   async #attachCustomSigns(info: ReadyInfo): Promise<void> {
     const client = this.#recognition;
     if (client === null) return;
+
+    // ASL's own ambiguity, surfaced as a control: 2 and V are one handshape, so a mode
+    // decides which reading applies rather than the model being asked to guess.
+    this.#mode.attach(client, info.vocabularies);
+
     await this.#customSigns.attach(
       client,
       { id: await resolvePackId(), version: info.packVersion ?? 'unknown' },

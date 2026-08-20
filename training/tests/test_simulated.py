@@ -19,9 +19,11 @@ import pytest
 
 from mudra_train.features.normalise import normalise_hand
 from mudra_train.ingest.asl_alphabet import ALPHABET, MOTION_LETTERS
+from mudra_train.ingest.asl_numbers import NUMBER_ALIASES, NUMBER_SHAPES
 from mudra_train.ingest.simulated import (
     LEFT_HAND_FRACTION,
     NONE_FRACTION,
+    SHAPES,
     generate,
     make_signers,
 )
@@ -34,8 +36,15 @@ def dataset():
 
 
 class TestDataset:
-    def test_covers_every_static_letter_plus_none(self, dataset) -> None:
-        assert set(dataset.labels) == set(ALPHABET) | {"none"}
+    def test_covers_every_handshape_plus_none(self, dataset) -> None:
+        assert set(dataset.labels) == set(SHAPES) | {"none"}
+
+    def test_covers_the_letters_and_the_six_distinct_digits(self, dataset) -> None:
+        """0, 2, 6 and 9 are absent on purpose — they are O, V, W and F, and a separate
+        class for each would split probability mass between identical shapes."""
+        assert set(ALPHABET) <= set(dataset.labels)
+        assert set(NUMBER_SHAPES) <= set(dataset.labels)
+        assert not set(NUMBER_ALIASES) & set(dataset.labels)
 
     def test_excludes_the_motion_letters(self, dataset) -> None:
         """J and Z cannot be a single frame; a static pack must not claim them."""
@@ -51,9 +60,7 @@ class TestDataset:
             assert len(array) == n
 
     def test_letters_are_balanced(self, dataset) -> None:
-        counts = {
-            letter: int((dataset.labels == letter).sum()) for letter in ALPHABET
-        }
+        counts = {label: int((dataset.labels == label).sum()) for label in SHAPES}
         assert len(set(counts.values())) == 1, "an imbalanced letter would train weaker"
 
     def test_none_is_well_represented(self, dataset) -> None:

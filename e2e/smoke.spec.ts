@@ -66,7 +66,170 @@ test.describe('application shell', () => {
   });
 });
 
+test.describe('the pack that ships with the repository', () => {
+  /**
+   * Loads the *real* artefact from `packages/web/public/models`, with nothing mocked.
+   *
+   * Every other pack test serves a fixture, which proves the loader works but says
+   * nothing about the file actually committed. A pack that was exported wrong, quantised
+   * wrong, or whose manifest disagrees with its weights would pass all of those and fail
+   * for every user.
+   */
+  test('loads, validates and runs', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+
+    await page.goto('/#translator');
+
+    const status = page.locator('#modelStatus');
+    await expect(status).toHaveClass(/ready/, { timeout: 60_000 });
+    // 24 static letters plus the six digits that are not already one of them.
+    await expect(status).toContainText('30 signs');
+    expect(errors).toEqual([]);
+
+    await page.keyboard.press('d');
+    await expect(page.locator('#dbgPerf')).toContainText('v2');
+  });
+
+  test('declares that it was trained on simulated data', async ({ page }) => {
+    // The user should be able to tell from the app, not only from the model card.
+    await page.goto('/#translator');
+    await expect(page.locator('#modelStatus')).toContainText('simulated', { timeout: 60_000 });
+  });
+
+  test('offers custom signs, so the pack exports embeddings', async ({ page }) => {
+    await page.goto('/#translator');
+    await expect(page.locator('#modelStatus')).toHaveClass(/ready/, { timeout: 60_000 });
+    await expect(page.locator('#customRecord')).toBeEnabled();
+  });
+});
+
+test.describe('letters and numbers modes', () => {
+  /**
+   * In ASL, 2 and V are the same handshape — as are 6/W, 9/F and 0/O. A signer separates
+   * them by context, so the app does too: the model predicts handshapes and a mode
+   * decides what they mean. Training 36 flat classes instead would ask the network to
+   * split classes carrying no distinguishing signal, and would cost letter accuracy.
+   */
+  test('offers a mode switch when the pack reads its handshapes two ways', async ({ page }) => {
+    await page.goto('/#translator');
+    await expect(page.locator('#modelStatus')).toHaveClass(/ready/, { timeout: 60_000 });
+
+    await expect(page.locator('#modeSwitch')).toBeVisible();
+    await expect(page.locator('[data-vocabulary="letters"]')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
+  test('switches to numbers and marks the active mode', async ({ page }) => {
+    await page.goto('/#translator');
+    await expect(page.locator('#modelStatus')).toHaveClass(/ready/, { timeout: 60_000 });
+
+    await page.locator('[data-vocabulary="numbers"]').click();
+    await expect(page.locator('[data-vocabulary="numbers"]')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await expect(page.locator('[data-vocabulary="letters"]')).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+  });
+
+  test('the pack declares both readings, and numbers covers all ten digits', async ({ page }) => {
+    const response = await page.request.get('/models/asl-fingerspell/manifest.json');
+    const manifest = (await response.json()) as {
+      labels: string[];
+      vocabularies?: Record<string, Record<string, string>>;
+    };
+
+    expect(Object.keys(manifest.vocabularies ?? {})).toEqual(['letters', 'numbers']);
+    expect(Object.values(manifest.vocabularies?.['numbers'] ?? {}).sort()).toEqual([
+      '0',
+      '1',
+      '2',
+      '3',
+      '4',
+      '5',
+      '6',
+      '7',
+      '8',
+      '9',
+    ]);
+
+    // The four shared shapes must not have been trained as separate classes.
+    for (const digit of ['0', '2', '6', '9']) {
+      expect(manifest.labels).not.toContain(digit);
+    }
+    expect(manifest.vocabularies?.['numbers']?.['V']).toBe('2');
+  });
+});
+
+test.describe('word suggestions', () => {
+  /**
+   * Scope note: these check the *wiring* — that the panel appears, that the word list is
+   * served from our own origin, and that it loads and indexes without error. The
+   * behaviour of suggestion and correction is covered by 22 unit tests in
+   * `packages/core/src/lexicon/lexicon.test.ts`, which can exercise it far more thoroughly
+   * than a browser can.
+   *
+   * Driving the suggestions end to end would need committed letters, and those only come
+   * from the camera. The tempting shortcut is a test-only hook on the page to inject them;
+   * that trades a real backdoor in shipped code for coverage already obtained elsewhere,
+   * so it is not taken.
+   */
+  test('shows the suggestion panel once a letter pack is loaded', async ({ page }) => {
+    await page.goto('/#translator');
+    await expect(page.locator('#modelStatus')).toHaveClass(/ready/, { timeout: 60_000 });
+    await expect(page.locator('#wordPanel')).toBeVisible();
+  });
+
+  test('loads and indexes the word list without error', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+
+    await page.goto('/#translator');
+    await expect(page.locator('#modelStatus')).toHaveClass(/ready/, { timeout: 60_000 });
+
+    // The status clears on success and carries a message on failure.
+    await expect(page.locator('#wordStatus')).toHaveText('', { timeout: 30_000 });
+    expect(errors).toEqual([]);
+  });
+
+  test('serves the word list from our own origin, in frequency order', async ({ page }) => {
+    const response = await page.request.get('/lexicon/en.txt');
+    expect(response.ok()).toBe(true);
+
+    const words = (await response.text()).split('\n').filter(Boolean);
+    expect(words.length).toBeGreaterThan(10_000);
+    // Frequency order is load-bearing: the line number is the prior that ranks
+    // suggestions, so an alphabetical list would put `aardvark` ahead of `and`.
+    expect(words[0]).toBe('the');
+    expect(words.slice(0, 5)).toContain('and');
+  });
+
+  test('ships the confusion profile with the pack', async ({ page }) => {
+    // What makes correction better than a spell-checker. Its absence is silent — the app
+    // still works, just with every substitution weighted alike.
+    const response = await page.request.get('/models/asl-fingerspell/manifest.json');
+    const manifest = (await response.json()) as { confusions?: Record<string, unknown> };
+    expect(manifest.confusions).toBeDefined();
+    expect(Object.keys(manifest.confusions ?? {}).length).toBeGreaterThan(0);
+  });
+});
+
 test.describe('model loading', () => {
+  /**
+   * Serve a 404 for the pack, so "no pack installed" is stated rather than assumed.
+   *
+   * The repository now ships a trained pack, so a test that relied on its absence would
+   * quietly stop testing the fallback and start testing the happy path instead.
+   */
+  async function withoutAPack(page: Page): Promise<void> {
+    await page.route('**/models/**', (route) => route.fulfill({ status: 404 }));
+  }
+
   /**
    * With no model pack installed the app falls back to the v1 model, which still runs
    * the legacy correction heuristics. That is presented as a warning rather than a
@@ -74,6 +237,7 @@ test.describe('model loading', () => {
    * `e2e/pack.spec.ts` covers the v2 path.
    */
   test('warns that the legacy model is in use when no pack is installed', async ({ page }) => {
+    await withoutAPack(page);
     await page.goto('/#translator');
     const status = page.locator('#modelStatus');
     // 26 letters + space in the v1 export.
@@ -83,6 +247,7 @@ test.describe('model loading', () => {
   });
 
   test('surfaces a clear error when the model is missing', async ({ page }) => {
+    await withoutAPack(page);
     await page.route('**/model_weights.json', (route) => route.fulfill({ status: 404 }));
     await page.goto('/#translator');
 

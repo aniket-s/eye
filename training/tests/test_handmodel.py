@@ -143,6 +143,26 @@ class TestProjection:
         turned = palm_width(project(hand("B"), yaw=60.0))
         assert turned == pytest.approx(facing * np.cos(np.deg2rad(60)), rel=0.25)
 
+    def test_a_right_hand_puts_its_thumb_on_the_left_of_the_image(self) -> None:
+        """The convention that has to match MediaPipe, or nothing works.
+
+        A camera looks *at* the signer, so their right — the thumb side of their right
+        hand — lands on the left of the frame. MediaPipe reports raw camera coordinates:
+        `getUserMedia` delivers an unmirrored feed, and the app's selfie-style mirroring
+        is a CSS transform on the video element, which does not touch the pixels the
+        landmarker samples.
+
+        Get this backwards and every inference-time hand is the mirror of the training
+        set. The normaliser cannot rescue it — it canonicalises left hands to right, not
+        raw frames to mirrored ones. Measured cost of the inversion: accuracy 0.95 → 0.24,
+        with 69% of real letters rejected as `none`.
+        """
+        right = project(hand("L"), hand="right")
+        assert right[TIPS["thumb"], 0] < right[TIPS["pinky"], 0]
+
+        left = project(hand("L"), hand="left")
+        assert left[TIPS["thumb"], 0] > left[TIPS["pinky"], 0]
+
     def test_left_hands_are_mirrored(self) -> None:
         right = project(hand("L"), hand="right")
         left = project(hand("L"), hand="left")

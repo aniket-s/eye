@@ -213,6 +213,7 @@ def write_card(
     classes: list[str],
     parameters: int,
     synthetic: bool,
+    simulated: bool = False,
 ) -> None:
     """Write the model card.
 
@@ -233,6 +234,37 @@ def write_card(
             "> Trained on procedurally generated handshapes, not real hands. It exists to",
             "> prove the pipeline runs end to end. It will fail on a real webcam.",
             "> Train on FSboard or your own recordings before shipping anything.",
+            "",
+        ]
+
+    if simulated:
+        lines += [
+            "> ## ⚠ TRAINED ON SIMULATED HANDS",
+            ">",
+            "> No real hands were recorded, and none were seen during training. Every",
+            "> sample comes from a kinematic hand model — a bone skeleton with",
+            "> anthropometric proportions, articulated to the joint configurations that",
+            "> define the manual alphabet, then projected through a camera model with",
+            "> viewpoint, anatomy and tracking noise randomised.",
+            ">",
+            "> **What this means in practice.** It works on real hands, and less well than",
+            "> a model trained on real ones. The scores below are measured on held-out",
+            "> *simulated* signers, so they describe how well the model generalises across",
+            "> simulated anatomy — **not** how well it will do on your camera. Treat them",
+            "> as an upper bound and expect the real figure to be lower.",
+            ">",
+            "> **Known gaps.** MediaPipe's errors on a real hand are structured — it",
+            "> confuses occluded fingers in specific, repeatable ways — and Gaussian noise",
+            "> is a poor imitation of that. There is no skin, no motion blur, and no",
+            "> self-occlusion beyond what the geometry implies. M, N, T and the",
+            "> thumb-tucked letters are the least faithful, because how far the thumb",
+            "> disappears under the fingers is exactly what a geometric model guesses at.",
+            ">",
+            "> **J and Z are absent.** Both are motion letters and cannot be represented by",
+            "> a single frame. Use a `temporal-ctc` pack for those.",
+            ">",
+            "> Recording thirty minutes of your own data with `packages/web/recorder.html`",
+            "> and retraining will beat this. That is the intended upgrade path.",
             "",
         ]
 
@@ -290,6 +322,71 @@ def write_card(
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
+def confusion_profile(report: EvaluationReport, *, minimum: float = 0.01) -> dict:
+    """Which letters this model mistakes for which, as conditional probabilities.
+
+    Carried in the manifest so the application can correct spelling using the model's
+    *own* error profile rather than generic edit distance. The difference is large: a K
+    read by this model is overwhelmingly likely to be a V, and vanishingly likely to be a
+    W, so "kes" should suggest "yes" far behind "ves" — and a spell-checker that treats
+    every substitution as equally likely cannot know that.
+
+    It also keeps the operating point with the weights, exactly as the thresholds are
+    (ADR 0003). A retrain ships a new error profile automatically; nothing in the
+    application needs to be told the model changed.
+
+    :param minimum: Drop pairs rarer than this. Below about 1% the estimate is a couple of
+        samples of noise, and including it would let a fluke drive a suggestion.
+    :returns: ``{true_letter: {predicted_letter: probability}}``, probabilities being
+        P(predicted | true) on the held-out signers.
+    """
+    profile: dict[str, dict[str, float]] = {}
+    for index, label in enumerate(report.labels):
+        if label == "none":
+            continue
+        total = int(report.confusion[index].sum())
+        if total == 0:
+            continue
+
+        row = {}
+        for other, predicted in enumerate(report.labels):
+            if other == index or predicted == "none":
+                continue
+            share = float(report.confusion[index, other]) / total
+            if share >= minimum:
+                row[predicted] = round(share, 4)
+
+        if row:
+            profile[label] = dict(sorted(row.items(), key=lambda item: -item[1]))
+
+    return profile
+
+
+def build_vocabularies(classes: list[str]) -> dict:
+    """Group the trained handshapes into the vocabularies a reader can switch between.
+
+    The model predicts *handshapes*; a vocabulary decides what a handshape means. This is
+    how ASL itself works — 2 and V are one shape, and a signer tells them apart from
+    context — and modelling it any other way makes the classifier worse. Asking one head
+    to output 26 letters and 10 digits would force it to split classes carrying no
+    distinguishing signal, dividing probability mass that belongs to V between V and 2.
+
+    :returns: ``{vocabulary: {trained_label: displayed_text}}``, or ``{}`` when the pack
+        has no digits and there is nothing to switch between.
+    """
+    from ..ingest.asl_numbers import NUMBER_VOCABULARY
+
+    trained = set(classes)
+    numbers = {
+        label: digit for label, digit in NUMBER_VOCABULARY.items() if label in trained
+    }
+    if len(numbers) < 10:
+        return {}
+
+    letters = {label: label for label in classes if label.isalpha() and label != "none"}
+    return {"letters": letters, "numbers": numbers}
+
+
 def build_pack(
     *,
     model: HandshapeClassifier,
@@ -297,6 +394,7 @@ def build_pack(
     report: EvaluationReport,
     output: Path,
     synthetic: bool = False,
+    simulated: bool = False,
     language: str = "ase",
 ) -> dict:
     """Write manifest, ONNX weights, and model card into ``output``."""
@@ -321,7 +419,13 @@ def build_pack(
     manifest = {
         "id": pack_id,
         "version": PACK_VERSION,
-        "name": ("Synthetic (pipeline test)" if synthetic else "ASL Fingerspelling"),
+        "name": (
+            "Synthetic (pipeline test)"
+            if synthetic
+            else "ASL Fingerspelling (simulated)"
+            if simulated
+            else "ASL Fingerspelling"
+        ),
         "language": language,
         "task": "static-handshape",
         "labels": classes,
@@ -337,9 +441,21 @@ def build_pack(
             "ece": round(report.ece, 6) if report.ece is not None else None,
             "testSigners": len(report.test_signers),
         },
+        "confusions": confusion_profile(report),
+        **(
+            {"vocabularies": vocabularies}
+            if (vocabularies := build_vocabularies(classes))
+            else {}
+        ),
         "modelFile": "model.onnx",
         "sha256": sha256_of(model_path),
-        "licence": "synthetic (no real data)" if synthetic else "see attribution",
+        "licence": (
+            "synthetic (no real data)"
+            if synthetic
+            else "simulated (no real data)"
+            if simulated
+            else "see attribution"
+        ),
     }
     if manifest["metrics"]["ece"] is None:
         del manifest["metrics"]["ece"]
@@ -352,6 +468,7 @@ def build_pack(
         classes=classes,
         parameters=model.parameter_count,
         synthetic=synthetic,
+        simulated=simulated,
     )
 
     return {

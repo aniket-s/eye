@@ -50,6 +50,13 @@ export interface HandshapeRecognizerOptions {
   /** Frames to smooth over. */
   readonly smoothingWindow?: number;
   readonly featureLength: number;
+  /**
+   * Labels currently eligible, or `null` for all of them.
+   *
+   * Set when a pack offers several readings of the same handshapes — see
+   * `vocabularies` in the manifest.
+   */
+  readonly allowed?: ReadonlySet<string> | null;
 }
 
 export interface HandshapeResult {
@@ -73,6 +80,7 @@ export class HandshapeRecognizer {
   readonly #thresholds: RejectionThresholds;
   readonly #smoother: ProbabilitySmoother;
   readonly #features: Float32Array;
+  #allowed: ReadonlySet<string> | null;
 
   constructor(classifier: Classifier, options: HandshapeRecognizerOptions) {
     this.#classifier = classifier;
@@ -82,6 +90,19 @@ export class HandshapeRecognizer {
       options.smoothingWindow ?? 8,
     );
     this.#features = new Float32Array(options.featureLength);
+    this.#allowed = options.allowed ?? null;
+  }
+
+  /**
+   * Restrict recognition to a subset of the trained labels.
+   *
+   * Switching vocabulary clears the smoothing history: those probabilities were computed
+   * for a different set of eligible classes, and carrying them across would let the
+   * previous mode outvote the first few frames of the new one.
+   */
+  setAllowed(allowed: ReadonlySet<string> | null): void {
+    this.#allowed = allowed;
+    this.#smoother.reset();
   }
 
   /** Clear smoothing history, e.g. when the hand leaves frame. */
@@ -111,7 +132,13 @@ export class HandshapeRecognizer {
     // Smooth probabilities, not labels. One flickered frame is outvoted by the
     // median instead of resetting everything downstream.
     const smoothed = this.#smoother.push(probabilities);
-    const verdict = judge(this.#classifier.labels, smoothed, logits, this.#thresholds);
+    const verdict = judge(
+      this.#classifier.labels,
+      smoothed,
+      logits,
+      this.#thresholds,
+      this.#allowed,
+    );
 
     return {
       letter: verdict.accepted ? verdict.label : NO_PREDICTION,

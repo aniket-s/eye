@@ -368,3 +368,117 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* ── Word suggestions ── */
+
+.word-panel {
+  margin-top: 0.9rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--border);
+}
+
+.word-panel-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.word-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.word-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.6rem 0.35rem 0.4rem;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--white);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.word-chip:hover,
+.word-chip:focus-visible {
+  border-color: var(--teal);
+}
+
+/*
+ * A correction is marked, an exact match is not. Silently swapping what someone spelled
+ * for something else is the one behaviour that would make this feature untrustworthy —
+ * so when the app has changed a letter, it says so.
+ */
+.word-chip.is-correction .word-chip-text {
+  color: var(--teal);
+}
+
+.word-chip-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  font-size: 0.68rem;
+  color: var(--muted);
+  background: var(--bg);
+  border-radius: 5px;
+}
+
+.word-chip-text {
+  letter-spacing: 0.03em;
+}
+
+.word-status {
+  margin: 0.45rem 0 0;
+  min-height: 1rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+/* ── Letters / numbers mode ── */
+
+/*
+ * Not a cosmetic preference. In ASL, 2 and V are the same handshape, as are 6/W, 9/F and
+ * 0/O — a signer separates them by context, and this switch is that context. Training
+ * them as separate classes would ask the model to split classes that carry no
+ * distinguishing signal, and would cost letter accuracy to do it.
+ */
+.mode-switch {
+  display: flex;
+  gap: 0.3rem;
+  padding: 0.25rem;
+  margin-bottom: 0.8rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+}
+
+.mode-btn {
+  flex: 1 1 0;
+  padding: 0.4rem 0.6rem;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.mode-btn:hover {
+  color: var(--white);
+}
+
+.mode-btn.is-active {
+  color: var(--bg);
+  background: var(--teal);
+}

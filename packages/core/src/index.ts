@@ -56,6 +56,8 @@ export {
   type PackTask,
   type PackInput,
   type PackMetrics,
+  type ConfusionProfile,
+  type Vocabularies,
 } from './registry/manifest.js';
 export {
   buildCustomSign,
@@ -67,6 +69,12 @@ export {
   type CustomSign,
   type CustomSignMatch,
 } from './registry/customSigns.js';
+export {
+  Lexicon,
+  parseWordList,
+  type WordSuggestion,
+  type SuggestOptions,
+} from './lexicon/lexicon.js';
 export { MlpClassifier } from './model/mlp.js';
 
 export { SentenceBuffer, type SentenceListener } from './sentence/sentenceBuffer.js';

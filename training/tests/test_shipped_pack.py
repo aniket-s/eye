@@ -74,6 +74,19 @@ class TestManifest:
         assert "J" not in manifest["labels"]
         assert "Z" not in manifest["labels"]
 
+    def test_reads_its_handshapes_as_letters_or_numbers(self, manifest) -> None:
+        """And does *not* train the four digits that are already letters.
+
+        0/O, 2/V, 6/W and 9/F are one handshape each. Separate classes would split their
+        probability mass and make the model worse at letters.
+        """
+        vocabularies = manifest["vocabularies"]
+        assert set(vocabularies) == {"letters", "numbers"}
+        assert sorted(vocabularies["numbers"].values()) == list("0123456789")
+        for digit in ("0", "2", "6", "9"):
+            assert digit not in manifest["labels"]
+        assert vocabularies["numbers"]["V"] == "2"
+
     def test_keeps_a_negative_class(self, manifest) -> None:
         """Without it every transition between letters is force-classified as a letter."""
         assert manifest["labels"][-1] == "none"

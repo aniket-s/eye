@@ -30,6 +30,8 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
+      // The dev-server checks have their own project below, against a different port.
+      testIgnore: '**/dev.spec.ts',
       use: {
         ...devices['Desktop Chrome'],
         launchOptions: {
@@ -49,11 +51,43 @@ export default defineConfig({
         },
       },
     },
+    {
+      /**
+       * The dev server, which resolves modules and assets completely differently.
+       *
+       * Everything else here runs against the production build, and that turned out to
+       * hide a total failure: Vite's dependency pre-bundling rewrote ONNX Runtime's WASM
+       * URL to a path it never wrote the binary to, the dev server answered with the SPA
+       * fallback, and the runtime tried to compile `index.html` as WebAssembly. The built
+       * app was fine throughout, so 45 passing tests said nothing about the mode people
+       * actually develop in.
+       */
+      name: 'dev-server',
+      testMatch: '**/dev.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: 'http://127.0.0.1:5173',
+        launchOptions: {
+          ...(process.env['CHROMIUM_PATH'] !== undefined
+            ? { executablePath: process.env['CHROMIUM_PATH'] }
+            : {}),
+          args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
+        },
+      },
+    },
   ],
-  webServer: {
-    command: 'npm run build && npm run preview',
-    url: 'http://127.0.0.1:4173',
-    reuseExistingServer: process.env['CI'] === undefined,
-    timeout: 120_000,
-  },
+  webServer: [
+    {
+      command: 'npm run build && npm run preview',
+      url: 'http://127.0.0.1:4173',
+      reuseExistingServer: process.env['CI'] === undefined,
+      timeout: 120_000,
+    },
+    {
+      command: 'npm run dev',
+      url: 'http://127.0.0.1:5173',
+      reuseExistingServer: process.env['CI'] === undefined,
+      timeout: 120_000,
+    },
+  ],
 });

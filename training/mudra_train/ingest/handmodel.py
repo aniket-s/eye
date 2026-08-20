@@ -304,7 +304,21 @@ def project(
     # cannot go negative for any plausible hand size.
     depth = distance - rotated[:, 2]
     projected = np.empty_like(rotated)
-    projected[:, 0] = centre[0] + scale * distance * rotated[:, 0] / depth
+    # Both axes are negated, and for the same reason: this is a camera looking *at* the
+    # signer, so its image axes run opposite to the signer's own.
+    #
+    # y, because screens grow downward. x, because the person's right — the radial, thumb
+    # side of their right hand — appears on the *left* of the image. MediaPipe reports
+    # coordinates in that raw camera frame: `getUserMedia` hands over an unmirrored feed,
+    # and the selfie-style mirroring in the app is a CSS transform on the video element,
+    # which never touches the pixels the landmarker samples.
+    #
+    # Getting this backwards is silent and total. Every hand the model is shown at
+    # inference is then the mirror image of everything it trained on, the normaliser
+    # cannot help — it canonicalises left to right, not raw to mirrored — and the
+    # classifier rejects almost every frame as `none`. Measured: accuracy 0.95 → 0.24,
+    # with 69% of real letters falling to the negative class.
+    projected[:, 0] = centre[0] - scale * distance * rotated[:, 0] / depth
     projected[:, 1] = centre[1] - scale * distance * rotated[:, 1] / depth
     projected[:, 2] = scale * (rotated[:, 2] - rotated[0, 2])
 

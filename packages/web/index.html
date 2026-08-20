@@ -97,6 +97,22 @@
         <div class="results-panel">
           <p class="model-status" id="modelStatus" role="status">Loading model…</p>
 
+          <!-- Which reading of the handshapes is active. Hidden unless the pack offers
+               more than one, which it does when it covers numbers: 2 and V are the same
+               handshape in ASL, so they are separated by mode rather than by the model. -->
+          <div
+            class="mode-switch"
+            id="modeSwitch"
+            role="group"
+            aria-label="Recognition mode"
+            hidden
+          >
+            <button type="button" class="mode-btn is-active" data-vocabulary="letters">
+              Letters
+            </button>
+            <button type="button" class="mode-btn" data-vocabulary="numbers">Numbers</button>
+          </div>
+
           <div class="letter-display">
             <div class="letter-big" id="letterBig" aria-live="polite">?</div>
             <div class="letter-label" id="letterLabel">Hold a sign in front of the camera</div>
@@ -132,6 +148,14 @@
               <button class="s-btn" id="clearSentence">🗑 Clear</button>
             </div>
             <button class="speak-btn" id="speakSentence">🔊 Speak Sentence</button>
+
+            <!-- Real-word suggestions for what was spelled. Hidden until a pack with a
+                 letter vocabulary is loaded. -->
+            <div class="word-panel" id="wordPanel" hidden>
+              <div class="word-panel-label">Did you mean</div>
+              <div class="word-list" id="wordList"></div>
+              <p class="word-status" id="wordStatus" role="status"></p>
+            </div>
           </div>
 
           <button id="startAccuracyTest" class="test-btn">◎ Test Model Accuracy</button>

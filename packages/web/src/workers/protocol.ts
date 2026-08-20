@@ -4,7 +4,7 @@
  * Landmarks travel as a transferable `Float32Array` rather than an array of objects,
  * so the hot path allocates nothing per frame on either side (docs/AUDIT.md, A5).
  */
-import type { CustomSign } from '@mudrapragyan/core';
+import type { ConfusionProfile, CustomSign, Vocabularies } from '@mudrapragyan/core';
 
 /** Main thread → worker. */
 export type WorkerRequest =
@@ -53,6 +53,16 @@ export type WorkerRequest =
        */
       readonly type: 'capture';
       readonly enabled: boolean;
+    }
+  | {
+      /**
+       * Choose which reading of the trained handshapes is active.
+       *
+       * `null` allows every label. Named vocabularies come from the pack manifest — see
+       * `vocabularies` there for why numbers need this rather than their own classes.
+       */
+      readonly type: 'vocabulary';
+      readonly name: string | null;
     };
 
 /** Worker → main thread. */
@@ -85,6 +95,16 @@ export type WorkerResponse =
        * and the UI must say so instead of offering a feature that never matches.
        */
       readonly supportsCustomSigns?: boolean;
+      /**
+       * Which letters this pack mistakes for which.
+       *
+       * Sent to the main thread because word correction lives there, next to the sentence
+       * being built — and because it is a property of the pack, so the app should never
+       * have to be told separately which model is loaded.
+       */
+      readonly confusions?: ConfusionProfile;
+      /** Readings this pack offers, if more than one. Drives the mode switch in the UI. */
+      readonly vocabularies?: Vocabularies;
     }
   | { readonly type: 'error'; readonly message: string }
   | {
@@ -103,6 +123,13 @@ export type WorkerResponse =
       readonly custom?: { readonly label: string; readonly similarity: number };
       /** This frame's embedding. Only present while capture is enabled. */
       readonly embedding?: readonly number[];
+      /**
+       * What the active vocabulary displays for `letter`.
+       *
+       * Differs from `letter` when the handshape has more than one reading — the model
+       * predicts `V`, and in numbers mode it shows as `2`.
+       */
+      readonly display?: string;
     }
   | {
       /** Emitted by `temporal-ctc` packs, which decode whole windows. */

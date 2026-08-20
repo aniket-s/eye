@@ -169,3 +169,63 @@ describe('judge', () => {
     expect(Number.isFinite(verdict.energy)).toBe(true);
   });
 });
+
+/**
+ * ASL's own ambiguity, handled where it belongs.
+ *
+ * 2 and V are the same handshape, as are 6/W, 9/F and 0/O. A signer separates them by
+ * context. Restricting the argmax to the active vocabulary *is* that context — and
+ * without it the two readings compete for one pile of probability and neither wins.
+ */
+describe('restricting judgement to a vocabulary', () => {
+  const LABELS = ['A', 'V', '5', NONE_LABEL];
+
+  it('ignores a label outside the active set, however confident', () => {
+    const verdict = judge(
+      LABELS,
+      [0.9, 0.05, 0.03, 0.02],
+      null,
+      DEFAULT_THRESHOLDS,
+      new Set(['V']),
+    );
+    expect(verdict.label).toBe('V');
+  });
+
+  it('behaves exactly as before when no set is given', () => {
+    const probabilities = [0.9, 0.05, 0.03, 0.02];
+    expect(judge(LABELS, probabilities, null).label).toBe('A');
+    expect(judge(LABELS, probabilities, null, DEFAULT_THRESHOLDS, null).label).toBe('A');
+  });
+
+  it('always keeps `none` eligible', () => {
+    // Rejecting a frame must never depend on which vocabulary happens to be selected.
+    const verdict = judge(LABELS, [0.1, 0.1, 0.1, 0.7], null, DEFAULT_THRESHOLDS, new Set(['V']));
+    expect(verdict.label).toBe(NONE_LABEL);
+    expect(verdict.accepted).toBe(false);
+  });
+
+  /**
+   * The margin has to be measured inside the vocabulary too, or selecting "numbers" would
+   * still see V crowding 2 in the runner-up slot and reject exactly the frames the mode
+   * exists to accept.
+   */
+  it('measures the margin within the active set', () => {
+    // A and V nearly tied, which is exactly the 2-vs-V situation. Unrestricted, the
+    // margin is too thin to accept anything. With V out of the vocabulary, A is the
+    // clear winner and the frame is usable.
+    const probabilities = [0.64, 0.28, 0.05, 0.03];
+    const thresholds = { minProbability: 0.6, minMargin: 0.45, maxEnergy: null };
+
+    expect(judge(LABELS, probabilities, null, thresholds).reason).toBe('low-margin');
+
+    const scoped = judge(LABELS, probabilities, null, thresholds, new Set(['A', '5']));
+    expect(scoped.label).toBe('A');
+    expect(scoped.accepted).toBe(true);
+  });
+
+  it('rejects rather than throwing when the set matches nothing', () => {
+    const verdict = judge(['A', 'B'], [0.6, 0.4], null, DEFAULT_THRESHOLDS, new Set(['Z']));
+    expect(verdict.accepted).toBe(false);
+    expect(verdict.label).toBe(NONE_LABEL);
+  });
+});

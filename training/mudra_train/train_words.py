@@ -21,6 +21,12 @@ import argparse
 import time
 from pathlib import Path
 
+# Before anything third-party, so a missing dependency reports itself clearly
+# rather than as a ModuleNotFoundError from the middle of this file.
+from .preflight import require_dependencies
+
+require_dependencies()
+
 import numpy as np
 import torch
 import torch.nn.functional as F

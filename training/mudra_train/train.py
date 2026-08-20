@@ -23,6 +23,12 @@ import json
 import time
 from pathlib import Path
 
+# Before anything third-party, so a missing dependency reports itself clearly
+# rather than as a ModuleNotFoundError from the middle of this file.
+from .preflight import require_dependencies
+
+require_dependencies()
+
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -33,7 +39,7 @@ from .eval.metrics import evaluate, format_report, split_by_signer
 from .export.pack import build_pack
 from .features.augment import AugmentConfig, augment_batch
 from .features.normalise import FEATURE_LENGTH, normalise_batch
-from .ingest import synthetic
+from .ingest import simulated, synthetic
 from .ingest.recorder import Dataset, load_directory
 from .models.classifier import HandshapeClassifier
 
@@ -68,6 +74,7 @@ def train(
     label_smoothing: float = 0.1,
     seed: int = 20260820,
     synthetic_data: bool = False,
+    simulated_data: bool = False,
     quiet: bool = False,
 ) -> dict:
     """Train, evaluate, and write a model pack. Returns the metrics summary."""
@@ -163,6 +170,7 @@ def train(
         report=report,
         output=output,
         synthetic=synthetic_data,
+        simulated=simulated_data,
     )
     if not quiet:
         size_kb = pack["sizeBytes"] / 1024
@@ -183,6 +191,23 @@ def main() -> None:
         action="store_true",
         help="Use procedural fixtures to validate the pipeline (NOT a usable model)",
     )
+    source.add_argument(
+        "--simulated",
+        action="store_true",
+        help="Train on the kinematic hand model — a usable model, weaker than real data",
+    )
+    parser.add_argument(
+        "--samples-per-class",
+        type=int,
+        default=1200,
+        help="Simulated samples per letter (--simulated only)",
+    )
+    parser.add_argument(
+        "--signers",
+        type=int,
+        default=16,
+        help="Simulated signers (--simulated only). Some are held out for evaluation.",
+    )
     parser.add_argument("--out", type=Path, required=True, help="Model pack output directory")
     parser.add_argument("--epochs", type=int, default=60)
     parser.add_argument("--batch-size", type=int, default=256)
@@ -192,6 +217,14 @@ def main() -> None:
     if args.synthetic:
         print("⚠  SYNTHETIC DATA — validates the pipeline, produces an unusable model.\n")
         dataset = synthetic.generate()
+    elif args.simulated:
+        print(
+            "⚠  SIMULATED DATA — a kinematic hand model, not recordings of real people.\n"
+            "   Usable, and weaker than real data. See the model card.\n"
+        )
+        dataset = simulated.generate(
+            samples_per_class=args.samples_per_class, signers=args.signers
+        )
     else:
         dataset = load_directory(args.data)
 
@@ -202,6 +235,7 @@ def main() -> None:
         batch_size=args.batch_size,
         seed=args.seed,
         synthetic_data=bool(args.synthetic),
+        simulated_data=bool(args.simulated),
     )
 
 

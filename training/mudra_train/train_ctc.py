@@ -17,6 +17,12 @@ import argparse
 import time
 from pathlib import Path
 
+# Before anything third-party, so a missing dependency reports itself clearly
+# rather than as a ModuleNotFoundError from the middle of this file.
+from .preflight import require_dependencies
+
+require_dependencies()
+
 import numpy as np
 import torch
 from torch.optim import AdamW
@@ -236,19 +242,50 @@ def train(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--synthetic", action="store_true", required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument(
+        "--synthetic",
+        action="store_true",
+        help="Procedural sequences to validate the pipeline (NOT a usable model)",
+    )
+    source.add_argument(
+        "--fsboard",
+        type=Path,
+        help="Extracted FSboard directory — 3M+ characters from 147 Deaf signers",
+    )
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--epochs", type=int, default=60)
     parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Use only this many clips. Worth trying before committing to a full run.",
+    )
     args = parser.parse_args()
 
-    print("⚠  SYNTHETIC SEQUENCES — validates the pipeline, produces an unusable model.\n")
+    if args.fsboard is not None:
+        from .ingest.fsboard import load_fsboard
+
+        dataset = load_fsboard(args.fsboard, limit=args.limit)
+        characters = sum(len(label) for label in dataset.labels)
+        signers = len(set(dataset.signers.tolist()))
+        print(
+            f"FSboard: {len(dataset):,} clips, {characters:,} characters, {signers} signers.\n"
+            "  Real recordings of real people — the numbers this produces mean something.\n"
+        )
+        synthetic = False
+    else:
+        print("⚠  SYNTHETIC SEQUENCES — validates the pipeline, produces an unusable model.\n")
+        dataset = sequence_data.generate()
+        synthetic = True
+
     train(
-        sequence_data.generate(),
+        dataset,
         args.out,
         epochs=args.epochs,
         batch_size=args.batch_size,
-        synthetic_data=True,
+        synthetic_data=synthetic,
     )
 
 

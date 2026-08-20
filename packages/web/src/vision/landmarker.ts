@@ -153,15 +153,46 @@ export class VisionLandmarker {
 /**
  * Read MediaPipe's handedness label.
  *
- * MediaPipe reports handedness from the *camera's* point of view, and the preview is
- * mirrored, so its "Left" is the signer's right hand. Correcting here means the rest
- * of the codebase can treat `handedness` as the signer's own — which is what matters
- * for the canonicalisation landing in Phase 2 (M1).
+ * MediaPipe assigns handedness *assuming the input image is mirrored*, as a selfie
+ * preview would be. It is not: `getUserMedia` delivers the raw camera feed, and the
+ * mirroring in this app is a CSS `scaleX(-1)` on the video element, which changes what
+ * the user sees and nothing about the pixels sampled here. So its labels must be
+ * swapped, which is what this does.
+ *
+ * Correcting it here means the rest of the codebase can treat `handedness` as the
+ * signer's own hand, which is what the v2 normaliser canonicalises on (M1).
+ *
+ * See {@link RAW_FRAME_CONVENTION} for the other half of this, which is easier to get
+ * wrong and far more expensive.
  */
 function readHandedness(categories: Category[] | undefined): Handedness {
   const label = categories?.[0]?.categoryName ?? '';
   return label === 'Left' ? 'right' : 'left';
 }
+
+/**
+ * **Landmarks are in raw camera coordinates, not preview coordinates.**
+ *
+ * Documented as a constant rather than a comment because training has to agree with it,
+ * and the two live in different languages and different directories.
+ *
+ * A camera looks *at* the signer, so the signer's right side lands on the left of the
+ * frame. In the coordinates MediaPipe emits, therefore, a **right hand has its thumb at
+ * a smaller x than its pinky**. The mirrored preview shows the opposite, which is why
+ * this is so easy to get backwards.
+ *
+ * Training data must be generated in this same frame. It once was not, and the failure
+ * was silent and total: the simulator was internally consistent, scored 0.968 on its own
+ * held-out signers, and rejected 69% of real letters as `none` because every hand it saw
+ * at inference was a mirror image of everything it had trained on. Normalisation cannot
+ * absorb it — that canonicalises left hands to right, not raw frames to mirrored ones.
+ *
+ * Pinned by `test_a_right_hand_puts_its_thumb_on_the_left_of_the_image` in
+ * `training/tests/test_handmodel.py`.
+ */
+export const RAW_FRAME_CONVENTION =
+  "MediaPipe landmarks are in raw camera coordinates: a right hand's thumb sits at a " +
+  'smaller x than its pinky. The mirrored preview is CSS only.';
 
 function toLandmark(point: NormalizedLandmark | undefined): Landmark {
   return { x: point?.x ?? 0, y: point?.y ?? 0, z: point?.z ?? 0 };

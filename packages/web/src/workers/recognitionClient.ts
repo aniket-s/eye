@@ -6,7 +6,7 @@ import {
   type HandLandmarks,
   type VisionFrame,
 } from '@mudrapragyan/core';
-import type { CustomSign } from '@mudrapragyan/core';
+import type { ConfusionProfile, CustomSign, Vocabularies } from '@mudrapragyan/core';
 import type { WorkerRequest, WorkerResponse } from './protocol.js';
 
 /**
@@ -28,6 +28,8 @@ export interface RecognitionResultMessage {
   readonly rawLabel: string | null;
   readonly confidence: number | null;
   readonly reason: string | null;
+  /** What the active vocabulary displays for `letter` — `2` where the model said `V`. */
+  readonly display?: string;
   /** A user-defined sign that matched, when one did. */
   readonly custom?: { readonly label: string; readonly similarity: number };
   /** This frame's embedding, present only while capture is enabled. */
@@ -42,6 +44,10 @@ export interface ReadyInfo {
   readonly packVersion?: string;
   /** Whether the loaded pack exposes embeddings, and so can learn the user's own signs. */
   readonly supportsCustomSigns: boolean;
+  /** Which letters this pack mistakes for which, for weighting word correction. */
+  readonly confusions?: ConfusionProfile;
+  /** Readings this pack offers, when its handshapes mean more than one thing. */
+  readonly vocabularies?: Vocabularies;
 }
 
 /** Emitted by word-level (isolated) packs. */
@@ -127,6 +133,17 @@ export class RecognitionClient {
   /** Clear motion history, e.g. when the hand leaves frame or a test restarts. */
   reset(): void {
     this.#post({ type: 'reset' });
+  }
+
+  /**
+   * Choose which reading of the handshapes is active, or `null` for all of them.
+   *
+   * Sent to the worker rather than applied here: it changes what the model may predict,
+   * and rewriting a label after the argmax has already picked an ineligible class is not
+   * the same answer.
+   */
+  setVocabulary(name: string | null): void {
+    this.#post({ type: 'vocabulary', name });
   }
 
   /** Install the user's own signs, so the worker can match against them. */
@@ -241,6 +258,8 @@ export class RecognitionClient {
           supportsCustomSigns: message.supportsCustomSigns ?? false,
           ...(message.packName === undefined ? {} : { packName: message.packName }),
           ...(message.packVersion === undefined ? {} : { packVersion: message.packVersion }),
+          ...(message.confusions === undefined ? {} : { confusions: message.confusions }),
+          ...(message.vocabularies === undefined ? {} : { vocabularies: message.vocabularies }),
         });
         return;
       case 'error':
@@ -284,6 +303,7 @@ export class RecognitionClient {
           rawLabel: message.rawLabel,
           confidence: message.confidence,
           reason: message.reason,
+          ...(message.display === undefined ? {} : { display: message.display }),
           ...(message.custom === undefined ? {} : { custom: message.custom }),
           ...(message.embedding === undefined ? {} : { embedding: message.embedding }),
         });

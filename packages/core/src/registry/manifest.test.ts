@@ -145,3 +145,46 @@ describe('parseManifest', () => {
     ).toThrow(/has not been evaluated/);
   });
 });
+
+/**
+ * Vocabularies are how one set of trained handshapes reads as letters *or* numbers.
+ * A malformed one would present a mode in the UI that recognises nothing, so it is
+ * refused rather than ignored.
+ */
+describe('vocabularies', () => {
+  function withVocabularies(vocabularies: unknown): unknown {
+    return { ...validManifest(), vocabularies };
+  }
+
+  it('is absent for a pack with only one reading', () => {
+    expect(parseManifest(validManifest()).vocabularies).toBeUndefined();
+  });
+
+  it('accepts a pack that reads its handshapes two ways', () => {
+    const manifest = parseManifest(
+      withVocabularies({ letters: { A: 'A', B: 'B' }, numbers: { A: '1' } }),
+    );
+    expect(manifest.vocabularies?.['numbers']?.['A']).toBe('1');
+  });
+
+  it('refuses a reading of a label the pack was never trained on', () => {
+    // Otherwise the mode appears and silently recognises nothing.
+    expect(() => parseManifest(withVocabularies({ numbers: { ZZZ: '1' } }))).toThrow(
+      /not one of this pack/,
+    );
+  });
+
+  it('refuses a non-object', () => {
+    expect(() => parseManifest(withVocabularies(['letters']))).toThrow(TypeError);
+    expect(() => parseManifest(withVocabularies({ letters: ['A'] }))).toThrow(TypeError);
+  });
+
+  it('refuses an empty reading', () => {
+    expect(() => parseManifest(withVocabularies({ numbers: {} }))).toThrow(/empty/);
+  });
+
+  it('refuses a non-string display value', () => {
+    expect(() => parseManifest(withVocabularies({ numbers: { A: 2 } }))).toThrow(TypeError);
+    expect(() => parseManifest(withVocabularies({ numbers: { A: '' } }))).toThrow(TypeError);
+  });
+});

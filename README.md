@@ -24,22 +24,103 @@ The `.task` model files are not committed — `models.lock.json` pins them by ch
 Without them the app loads and the Dictionary works, but the Translator will tell you to run
 setup.
 
+**A trained model pack ships with the repository**, so the Translator works out of the box.
+It was trained on simulated hands rather than recordings of real people — see
+[Where the model comes from](#where-the-model-comes-from) for what that costs you, and the
+[model card](packages/web/public/models/asl-fingerspell/card.md) for the numbers.
+
 | Command          | What it does                                                 |
 | ---------------- | ------------------------------------------------------------ |
 | `npm run dev`    | Development server with hot reload                           |
 | `npm run build`  | Production build into `packages/web/dist`                    |
-| `npm test`       | 127 unit tests, no browser needed (~2 s)                     |
-| `npm run e2e`    | 16 Playwright smoke tests against the built app              |
+| `npm test`       | 294 unit tests, no browser needed (~6 s)                     |
+| `npm run e2e`    | 42 Playwright tests against the built app                    |
 | `npm run verify` | Format check → lint → typecheck → tests. Run before pushing. |
 
 Camera access needs a secure context, so use `localhost` or HTTPS.
 
 **Deploying?** See [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
-## Training a model
+## Building words, not just letters
 
-The app ships with no trained model, because no dataset can legally or practically be
-bundled. Two routes:
+Per-letter accuracy compounds, and that is the real obstacle. At 93% — around the best
+anyone achieves on real fingerspelling — a five-letter word arrives intact 70% of the
+time and a seven-letter word 60%. Pushing per-letter accuracy is a losing fight against
+an exponent.
+
+So the app constrains output to real words. As you spell, it offers candidates from a
+30,000-word frequency-ranked list; press <kbd>1</kbd>–<kbd>4</kbd> or click to accept.
+Two things make it better than a spell-checker:
+
+- **It uses the model's own confusion profile.** Every pack ships the letters it actually
+  mistakes for which, measured on its held-out signers, in its manifest. So a displayed
+  V is cheap to reinterpret as a K if _this_ model confuses those, and expensive if it
+  does not. A retrain replaces the profile automatically.
+- **Corrections are marked.** A suggestion that changes a letter is shown in a different
+  colour from one that merely completes what you spelled. Silently swapping what someone
+  signed for something else is the one behaviour that would make the feature untrustworthy.
+
+Everything runs on the device. The word list is fetched lazily, ~80 KB compressed.
+
+## Where the model comes from
+
+The bundled pack is **simulated**. No dataset of real signers can be legally or practically
+bundled with a repository, so rather than ship nothing, the training data is generated from a
+kinematic hand model: a bone skeleton with anthropometric proportions, articulated to the joint
+configurations and finger contacts that define the manual alphabet, then projected through a
+camera with viewpoint, anatomy and tracking noise randomised per simulated signer.
+
+|                   |                                             |
+| ----------------- | ------------------------------------------- |
+| macro-F1          | **0.968** on 5 held-out _simulated_ signers |
+| Worst slice       | 0.922 (transitions between letters)         |
+| Calibration error | 0.009                                       |
+| Vocabulary        | 24 static letters + `none`                  |
+| Size              | 525 KB, int8                                |
+
+**Read that first number carefully.** It measures generalisation across simulated anatomy, not
+performance on your camera. It is an upper bound; the real figure will be lower. A simulated
+hand has no skin, no motion blur, and MediaPipe's errors on a real hand are structured in ways
+Gaussian noise does not imitate. M, N and T — where the thumb hides under the fingers — are the
+least faithful.
+
+**J and Z are absent.** Both are motion letters and a single frame cannot represent either.
+Train a `temporal-ctc` pack for those.
+
+### Numbers, and why there is a mode switch
+
+In ASL, several digits **are** letters. Not similar — the same handshape:
+
+| Digit | Same shape as |
+| ----- | ------------- |
+| `0`   | `O`           |
+| `2`   | `V`           |
+| `6`   | `W`           |
+| `9`   | `F`           |
+
+A signer separates them by context. So the model is trained on 30 _handshapes_, and a
+letters/numbers switch decides what a handshape means — which is how a human reads them
+too.
+
+The alternative, one flat classifier over 26 letters and 10 digits, does not merely fail
+at the digits: it makes the **letters worse**, because probability mass belonging to `V`
+gets divided between `V` and `2` and neither clears the margin threshold. Adding numbers
+this way cost nothing — macro-F1 went from 0.968 across 24 classes to 0.973 across 30.
+
+The whole thing is reproducible in about ten minutes:
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e "training[dev]"
+npm run train:simulated
+```
+
+(A virtual environment because recent macOS and Linux Pythons refuse a plain
+`pip install` into the system interpreter. None of this is needed to run the app.)
+
+## Training on real data
+
+Simulation is a floor, not a ceiling. Both routes below will beat it.
 
 **Fastest — record your own (~30 minutes).**
 
@@ -48,13 +129,37 @@ npm run dev                    # open http://localhost:5173/recorder.html
 # Record 24 letters + `none`, twice: once per hand, across a few lighting conditions.
 # Get a second person to record too — a single-signer dataset is refused, on purpose.
 
+python3 -m venv .venv && source .venv/bin/activate
 pip install -e "training[dev]"
 cd training
 python -m mudra_train.train --data ./recordings --out ../packages/web/public/models/asl-fingerspell
 ```
 
 **Best quality — FSboard.** 3M+ characters from 147 Deaf signers, CC BY 4.0. Needs a free
-Kaggle account. Point `--data` at the extracted landmarks.
+Kaggle account.
+
+```bash
+pip install kaggle                       # API token goes in ~/.kaggle/kaggle.json
+kaggle datasets download -d google/fsboard
+unzip fsboard.zip -d ./fsboard
+
+cd training
+# Check the adapter agrees with your download before committing to a long run.
+python -m mudra_train.ingest.fsboard --root ../fsboard --inspect
+python -m mudra_train.train_ctc --fsboard ../fsboard \
+  --out ../packages/web/public/models/asl-fingerspell
+```
+
+FSboard trains a **CTC pack, not a static one**, and that is a feature. Its labels are
+whole phrases with no per-frame alignment, so there is no honest way to cut per-letter
+examples out of it — the temporal model learns the alignment itself. Which also means
+**J and Z come for free**: motion letters are ordinary labels to a model that sees
+sequences, and impossible for one that sees frames. The dwell timer disappears too, so
+spelling becomes continuous instead of pausing on each letter.
+
+The adapter discovers the schema rather than assuming it, and `--inspect` prints what it
+found. That matters because it was written without access to the download; if the release
+differs, the output says exactly how.
 
 Three model types are available, and the app switches mode automatically based on which
 pack is installed:

@@ -192,15 +192,46 @@ export function judge(
   probabilities: readonly number[],
   logits: readonly number[] | null,
   thresholds: RejectionThresholds = DEFAULT_THRESHOLDS,
+  allowed: ReadonlySet<string> | null = null,
 ): Verdict {
-  let bestIndex = 0;
-  for (let i = 1; i < probabilities.length; i++) {
-    if ((probabilities[i] as number) > (probabilities[bestIndex] as number)) bestIndex = i;
+  // Restricting the argmax to the active vocabulary is what makes ASL's genuinely
+  // ambiguous shapes usable. 2 and V are the *same* handshape, as are 6/W, 9/F and 0/O —
+  // a signer separates them by context, and this is that context. Without it the two
+  // readings would compete for the same probability mass and neither would clear the
+  // margin threshold.
+  //
+  // `none` is always eligible: rejecting a frame must never depend on which vocabulary
+  // happens to be selected.
+  const eligible = (index: number): boolean =>
+    allowed === null || labels[index] === NONE_LABEL || allowed.has(labels[index] ?? '');
+
+  let bestIndex = -1;
+  for (let i = 0; i < probabilities.length; i++) {
+    if (!eligible(i)) continue;
+    if (bestIndex === -1 || (probabilities[i] as number) > (probabilities[bestIndex] as number)) {
+      bestIndex = i;
+    }
+  }
+  if (bestIndex === -1) {
+    return {
+      label: NONE_LABEL,
+      probability: 0,
+      margin: 0,
+      energy: 0,
+      accepted: false,
+      reason: 'none-class',
+    };
   }
 
   const label = labels[bestIndex] ?? NONE_LABEL;
   const probability = probabilities[bestIndex] ?? 0;
-  const margin = topMargin(probabilities);
+  // The margin is measured within the active vocabulary too. Otherwise selecting
+  // "numbers" would still see V crowding 2 in the runner-up slot, and the margin check
+  // would reject exactly the frames the mode exists to accept.
+  const margin =
+    allowed === null
+      ? topMargin(probabilities)
+      : topMargin(probabilities.filter((_, index) => eligible(index)));
   const energy = logits === null ? 0 : energyScore(logits);
 
   const base = { label, probability, margin, energy };

@@ -37,6 +37,29 @@ export class SentenceBuffer {
     this.#set(this.#text.slice(0, -1));
   }
 
+  /**
+   * The word currently being spelled: everything since the last space.
+   *
+   * What word correction operates on. Kept here rather than recomputed by the caller so
+   * there is one definition of where a word begins.
+   */
+  get currentWord(): string {
+    const lastSpace = this.#text.lastIndexOf(' ');
+    return this.#text.slice(lastSpace + 1);
+  }
+
+  /**
+   * Replace the word being spelled, and add a trailing space.
+   *
+   * How a suggestion is accepted. The space is not decoration: accepting a word means
+   * that word is finished, and leaving the caret inside it would make the next letter
+   * extend a word the user has just confirmed.
+   */
+  replaceCurrentWord(word: string): void {
+    const lastSpace = this.#text.lastIndexOf(' ');
+    this.#set(`${this.#text.slice(0, lastSpace + 1)}${word} `);
+  }
+
   /** Remove everything. */
   clear(): void {
     if (this.#text.length === 0) return;

@@ -47,6 +47,17 @@ export interface PackInput {
   readonly windowFrames?: number;
 }
 
+/**
+ * `true letter -> { predicted letter -> probability }`.
+ *
+ * Rows need not sum to 1: correct predictions are excluded, and pairs too rare to
+ * estimate are dropped at export.
+ */
+export type ConfusionProfile = Readonly<Record<string, Readonly<Record<string, number>>>>;
+
+/** `vocabulary -> { trained label -> displayed text }`. */
+export type Vocabularies = Readonly<Record<string, Readonly<Record<string, string>>>>;
+
 /** Headline metrics, copied from the evaluation report. */
 export interface PackMetrics {
   /** Macro-averaged F1 on the signer-independent test split. */
@@ -75,6 +86,31 @@ export interface PackManifest {
   /** Operating point chosen during evaluation, not guessed by the app. */
   readonly thresholds: RejectionThresholds;
   readonly metrics: PackMetrics;
+  /**
+   * Which letters this model mistakes for which, as `P(predicted | true)` measured on the
+   * held-out signers.
+   *
+   * Travels with the weights for the same reason the thresholds do: it describes *this*
+   * model's behaviour and is invalidated by a retrain. Word correction uses it to weight
+   * substitutions — a K read by a given pack may be overwhelmingly likely to be a V and
+   * vanishingly likely to be a W, and a generic spell-checker cannot know that.
+   *
+   * Optional: packs exported before this existed have none, and correction falls back to
+   * treating every substitution as equally likely.
+   */
+  readonly confusions?: ConfusionProfile;
+  /**
+   * Named readings of the trained handshapes: `vocabulary -> { label -> displayed text }`.
+   *
+   * The model predicts handshapes; a vocabulary decides what one *means*. ASL numbers
+   * make this necessary rather than decorative — 2 and V are the same handshape, as are
+   * 6/W, 9/F and 0/O, and a signer tells them apart from context. Training them as
+   * separate classes would ask the network to split classes carrying no distinguishing
+   * signal, and would cost letter accuracy to do it.
+   *
+   * Absent for a pack with only one reading, which is what a letters-only pack is.
+   */
+  readonly vocabularies?: Vocabularies;
   /** Model file name within the pack directory. */
   readonly modelFile: string;
   /** SHA-256 of the model file, so CI can verify what shipped. */
@@ -206,6 +242,9 @@ export function parseManifest(value: unknown): PackManifest {
     );
   }
 
+  const confusions = parseConfusions(raw['confusions']);
+  const vocabularies = parseVocabularies(raw['vocabularies'], labels);
+
   const manifest: PackManifest = {
     id: requireString('id'),
     version: requireString('version'),
@@ -228,6 +267,8 @@ export function parseManifest(value: unknown): PackManifest {
       testSigners,
       ...(typeof metricsRaw['ece'] === 'number' ? { ece: metricsRaw['ece'] } : {}),
     },
+    ...(confusions === null ? {} : { confusions }),
+    ...(vocabularies === null ? {} : { vocabularies }),
     modelFile: requireString('modelFile'),
     sha256: requireString('sha256'),
     licence: requireString('licence'),
@@ -235,6 +276,83 @@ export function parseManifest(value: unknown): PackManifest {
   };
 
   return manifest;
+}
+
+/**
+ * Validate the vocabularies, if a pack declares any.
+ *
+ * Every entry must name a label the model was actually trained on. A vocabulary
+ * referencing a class that does not exist would silently mask that reading out of
+ * existence — the mode would appear in the UI and recognise nothing.
+ */
+function parseVocabularies(raw: unknown, labels: readonly string[]): Vocabularies | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new TypeError('Manifest: `vocabularies` must be an object');
+  }
+
+  const known = new Set(labels);
+  const parsed: Record<string, Record<string, string>> = {};
+
+  for (const [name, entries] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof entries !== 'object' || entries === null || Array.isArray(entries)) {
+      throw new TypeError(`Manifest: \`vocabularies.${name}\` must be an object`);
+    }
+    const mapping: Record<string, string> = {};
+    for (const [label, display] of Object.entries(entries as Record<string, unknown>)) {
+      if (typeof display !== 'string' || display === '') {
+        throw new TypeError(`Manifest: \`vocabularies.${name}.${label}\` must be a string`);
+      }
+      if (!known.has(label)) {
+        throw new TypeError(
+          `Manifest: \`vocabularies.${name}\` refers to "${label}", which is not one of ` +
+            "this pack's labels",
+        );
+      }
+      mapping[label] = display;
+    }
+    if (Object.keys(mapping).length === 0) {
+      throw new TypeError(`Manifest: \`vocabularies.${name}\` is empty`);
+    }
+    parsed[name] = mapping;
+  }
+
+  return parsed;
+}
+
+/**
+ * Validate the confusion profile, if a pack carries one.
+ *
+ * Absent is normal — older packs have none. Malformed is not, and is rejected rather than
+ * ignored: a profile with a stray string or a probability of 4 would silently skew every
+ * suggestion the app makes, which is far harder to notice than a refusal to load.
+ */
+function parseConfusions(raw: unknown): ConfusionProfile | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new TypeError('Manifest: `confusions` must be an object');
+  }
+
+  const profile: Record<string, Record<string, number>> = {};
+  for (const [trueLabel, row] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof row !== 'object' || row === null || Array.isArray(row)) {
+      throw new TypeError(`Manifest: \`confusions.${trueLabel}\` must be an object`);
+    }
+    const parsed: Record<string, number> = {};
+    for (const [predicted, probability] of Object.entries(row as Record<string, unknown>)) {
+      if (typeof probability !== 'number' || !Number.isFinite(probability)) {
+        throw new TypeError(`Manifest: \`confusions.${trueLabel}.${predicted}\` must be a number`);
+      }
+      if (probability <= 0 || probability > 1) {
+        throw new TypeError(
+          `Manifest: \`confusions.${trueLabel}.${predicted}\` must be a probability in (0, 1]`,
+        );
+      }
+      parsed[predicted] = probability;
+    }
+    profile[trueLabel] = parsed;
+  }
+  return profile;
 }
 
 /** `id@version`, for logs and the model picker. */

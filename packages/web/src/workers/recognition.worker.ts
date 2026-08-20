@@ -27,7 +27,7 @@ import {
   MlpClassifier,
   NO_PREDICTION,
 } from '@mudrapragyan/core';
-import type { Handedness, MlpWeights } from '@mudrapragyan/core';
+import type { Handedness, MlpWeights, Vocabularies } from '@mudrapragyan/core';
 import { OnnxClassifier } from '../model/onnxClassifier.js';
 import { OnnxSequenceClassifier } from '../model/onnxSequenceClassifier.js';
 import { OnnxClipClassifier } from '../model/onnxClipClassifier.js';
@@ -55,6 +55,16 @@ let legacy: LegacyRecognizer | null = null;
 const customSigns = new CustomSignBook();
 /** Whether to send embeddings back. Only true while the recorder is open. */
 let capturing = false;
+
+/**
+ * The active reading of the trained handshapes, if the pack offers more than one.
+ *
+ * Held here rather than applied on the main thread because it changes what the model is
+ * allowed to predict — masking after the fact would let an ineligible class win the
+ * argmax and then be rewritten, which is not the same answer.
+ */
+let vocabularies: Vocabularies | undefined;
+let display: Readonly<Record<string, string>> | null = null;
 
 function post(message: WorkerResponse): void {
   scope.postMessage(message);
@@ -108,6 +118,7 @@ async function init(fallbackModelUrl: string): Promise<void> {
 
   if (pack !== null) {
     const classifier = await OnnxClassifier.create(pack.modelBytes, pack.manifest);
+    vocabularies = pack.manifest.vocabularies;
     modern = new HandshapeRecognizer(classifier, {
       // The operating point comes from the pack, not from the app. A retrain ships
       // its own thresholds, so they can never fall out of step with the weights.
@@ -121,6 +132,10 @@ async function init(fallbackModelUrl: string): Promise<void> {
       packName: `${pack.manifest.name} v${pack.manifest.version}`,
       packVersion: pack.manifest.version,
       supportsCustomSigns: classifier.supportsCustomSigns,
+      ...(pack.manifest.confusions === undefined ? {} : { confusions: pack.manifest.confusions }),
+      ...(pack.manifest.vocabularies === undefined
+        ? {}
+        : { vocabularies: pack.manifest.vocabularies }),
     });
     return;
   }
@@ -162,6 +177,13 @@ scope.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
     case 'capture':
       capturing = message.enabled;
       return;
+
+    case 'vocabulary': {
+      const chosen = message.name === null ? undefined : vocabularies?.[message.name];
+      display = chosen ?? null;
+      modern?.setAllowed(chosen === undefined ? null : new Set(Object.keys(chosen)));
+      return;
+    }
 
     case 'frame': {
       if (words !== null) {
@@ -230,6 +252,11 @@ scope.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
               seq: message.seq,
               timestampMs: message.timestampMs,
               letter: custom?.sign.label ?? result.letter,
+              // What to show for it. A custom sign is already its own label; a trained
+              // handshape is renamed by the active vocabulary, so `V` shows as `2`.
+              ...(custom === null && display !== null && display[result.letter] !== undefined
+                ? { display: display[result.letter] }
+                : {}),
               rawLabel: result.verdict?.label ?? null,
               confidence: result.verdict?.probability ?? null,
               reason: custom !== null ? 'custom-sign' : (result.verdict?.reason ?? null),

@@ -39,6 +39,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .asl_alphabet import ALPHABET, MOTION_LETTERS, THUMB_CONTACT, orientation_for
+from .asl_numbers import NUMBER_ALIASES, NUMBER_CONTACT, NUMBER_SHAPES
 from .handmodel import (
     FingerPose,
     HandGeometry,
@@ -109,6 +110,18 @@ def make_signers(count: int, rng: np.random.Generator) -> list[Signer]:
     ]
 
 
+#: Every handshape the model is trained on: the static letters plus the digits that are
+#: not already one of them.
+#:
+#: The digits 0, 2, 6 and 9 are deliberately absent — they *are* O, V, W and F, and giving
+#: them their own classes would split probability mass between identical shapes and make
+#: the model worse at letters. See `asl_numbers.py`.
+SHAPES: dict[str, HandPose] = {**ALPHABET, **NUMBER_SHAPES}
+
+#: Thumb contacts for every shape that has one.
+CONTACTS: dict[str, tuple[int, float]] = {**THUMB_CONTACT, **NUMBER_CONTACT}
+
+
 def _resolve_pose(letter: str, signer: Signer) -> HandPose:
     """The letter as *this* signer's hand makes it.
 
@@ -116,7 +129,7 @@ def _resolve_pose(letter: str, signer: Signer) -> HandPose:
     fingertip it is supposed to meet rather than merely reusing an angle that happened to
     work for the average hand.
     """
-    declared = ALPHABET[letter]
+    declared = SHAPES[letter]
     fingers = tuple(
         FingerPose(
             mcp=finger.mcp * signer.articulation,
@@ -129,8 +142,8 @@ def _resolve_pose(letter: str, signer: Signer) -> HandPose:
     )
     pose = HandPose(fingers=fingers, thumb=declared.thumb)  # type: ignore[arg-type]
 
-    if letter in THUMB_CONTACT:
-        landmark, distance = THUMB_CONTACT[letter]
+    if letter in CONTACTS:
+        landmark, distance = CONTACTS[letter]
         pose = HandPose(
             fingers=pose.fingers,
             thumb=solve_thumb_contact(pose, signer.geometry, landmark, distance),
@@ -269,7 +282,7 @@ def generate(
 
     rng = np.random.default_rng(seed)
     people = make_signers(signers, rng)
-    letters = list(ALPHABET)
+    letters = list(SHAPES)
     per_signer = max(1, samples_per_class // signers)
 
     landmarks: list[np.ndarray] = []
@@ -334,10 +347,13 @@ def generate(
 def describe() -> str:
     """One-paragraph provenance line for the model card."""
     excluded = ", ".join(sorted(MOTION_LETTERS))
+    aliases = ", ".join(f"{digit}={label}" for digit, label in sorted(NUMBER_ALIASES.items()))
     return (
-        f"Simulated from a kinematic hand model ({len(ALPHABET)} static letters; "
-        f"{excluded} excluded as motion letters). Joint angles, bone lengths, viewpoint, "
-        "perspective and tracking noise are randomised per simulated signer and per "
-        "sample. No real hands were recorded, and no real hands were seen during "
+        f"Simulated from a kinematic hand model: {len(SHAPES)} handshapes covering "
+        f"{len(ALPHABET)} static letters and the digits 0-9, of which {aliases} share a "
+        f"handshape with a letter and are therefore not separate classes. "
+        f"{excluded} are excluded as motion letters. Joint angles, bone lengths, "
+        "viewpoint, perspective and tracking noise are randomised per simulated signer "
+        "and per sample. No real hands were recorded, and none were seen during "
         "training — see the limitations section."
     )

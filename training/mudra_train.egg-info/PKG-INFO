@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: mudra-train
+Version: 0.1.0
+Summary: Training pipeline for MudraPragyan.AI sign recognition models
+Requires-Python: >=3.10
+Requires-Dist: numpy>=1.26
+Requires-Dist: torch>=2.2
+Requires-Dist: onnx>=1.16
+Requires-Dist: onnxruntime>=1.18
+Requires-Dist: scikit-learn>=1.4
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Provides-Extra: video
+Requires-Dist: mediapipe>=0.10; extra == "video"
+Requires-Dist: opencv-python>=4.9; extra == "video"
