@@ -53,7 +53,10 @@ export class TranslatorPage {
   readonly #dbgPerf = requireElement('dbgPerf');
 
   readonly #sentence = new SentenceBuffer();
-  readonly #hold = new TimedHoldCommitDetector();
+  // Faster than the v1-parity defaults (667/1000 ms): with the v2 pack's smoothed,
+  // rejection-gated letters, a shorter dwell no longer double-commits, and the long
+  // cooldown was the main reason spelling felt slow.
+  readonly #hold = new TimedHoldCommitDetector({ holdMs: 400, cooldownMs: 400 });
   readonly #accuracyTest = new AccuracyTest();
   readonly #customSigns = new CustomSignsPanel();
   readonly #words: WordSuggestions;

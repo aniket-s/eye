@@ -260,7 +260,9 @@ test.describe('dictionary', () => {
   test('renders every category and its signs', async ({ page }) => {
     await page.goto('/#dictionary');
 
-    await expect(page.locator('.cat-pill')).toHaveCount(11);
+    // Alphabets and numbers only: the categories the recogniser can actually read.
+    // Word categories return with a word-level pack and artwork to show for them.
+    await expect(page.locator('.cat-pill')).toHaveCount(2);
     await expect(page.locator('#sec-alphabets .sign-card')).toHaveCount(26);
     await expect(page.locator('#sec-numbers .sign-card')).toHaveCount(11);
   });
@@ -297,16 +299,6 @@ test.describe('dictionary', () => {
     await page.goto('/#dictionary');
     const image = page.locator('#sec-alphabets .sign-card img').first();
     await expect(image).toHaveAttribute('src', /alphabets\/a\.svg$/);
-  });
-
-  /**
-   * Word categories still have no artwork — Phase 4 adds PopSign clips. Pinned so the
-   * gap is visible rather than forgotten.
-   */
-  test('KNOWN GAP: word signs still have no artwork', async ({ page }) => {
-    await page.goto('/#dictionary');
-    const card = page.locator('#sec-greetings .sign-card').first();
-    await expect(card.locator('.placeholder')).toBeVisible({ timeout: 15_000 });
   });
 });
 

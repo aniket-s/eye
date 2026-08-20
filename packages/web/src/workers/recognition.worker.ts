@@ -124,6 +124,10 @@ async function init(fallbackModelUrl: string): Promise<void> {
       // its own thresholds, so they can never fall out of step with the weights.
       thresholds: pack.manifest.thresholds,
       featureLength: pack.manifest.input.featureLength,
+      // Median over 6 frames instead of the default 8: still outvotes flickered
+      // frames, but a new letter stabilises ~100 ms sooner, which the dwell timer
+      // then compounds. Part of making spelling feel responsive.
+      smoothingWindow: 6,
     });
     post({
       type: 'ready',
