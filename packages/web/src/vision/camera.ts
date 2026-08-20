@@ -79,21 +79,37 @@ export async function startCamera(options: CameraOptions): Promise<CameraSession
     height: settings.height ?? video.videoHeight,
   };
 
+  // Frames are stamped with `performance.now()`, NOT the stream's media clock.
+  // `metadata.mediaTime` sounds right, but on some webcam/OS/browser combinations it
+  // repeats or barely advances for live streams. When that happens the vision layer's
+  // monotonic nudge (+1 ms per frame) keeps detection working, so nothing *looks*
+  // broken — but every time-based stage (hold-to-commit, capture spacing) then counts
+  // ~30 fake milliseconds per real second, thirty times slower than reality. Seen in
+  // the field as a hold bar that crawls and a recorder that never captures. The wall
+  // clock is what those stages actually mean, on every machine.
   const requestVideoFrame = video.requestVideoFrameCallback?.bind(video);
   if (requestVideoFrame !== undefined) {
-    const onVideoFrame = (_now: number, metadata: VideoFrameCallbackMetadata): void => {
+    const onVideoFrame = (): void => {
       if (stopped) return;
-      options.onFrame({ video, timestampMs: metadata.mediaTime * 1000 });
-      vfcHandle = requestVideoFrame(onVideoFrame);
+      try {
+        options.onFrame({ video, timestampMs: performance.now() });
+      } finally {
+        // Re-arm even if a consumer throws: one bad frame must not silently kill the
+        // loop — a dead loop is indistinguishable from a frozen model to the user.
+        vfcHandle = requestVideoFrame(onVideoFrame);
+      }
     };
     vfcHandle = requestVideoFrame(onVideoFrame);
   } else {
-    // Safari before 15.4 and older Firefox. `currentTime` is coarser but still a
-    // media clock, so timing stays independent of the display refresh rate.
+    // Safari before 15.4 and older Firefox: no per-frame callback, so tick with the
+    // display. Duplicate frames cost a little CPU and change no results.
     const onAnimationFrame = (): void => {
       if (stopped) return;
-      options.onFrame({ video, timestampMs: video.currentTime * 1000 });
-      rafHandle = requestAnimationFrame(onAnimationFrame);
+      try {
+        options.onFrame({ video, timestampMs: performance.now() });
+      } finally {
+        rafHandle = requestAnimationFrame(onAnimationFrame);
+      }
     };
     rafHandle = requestAnimationFrame(onAnimationFrame);
   }
