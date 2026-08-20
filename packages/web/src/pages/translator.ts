@@ -24,6 +24,20 @@ import { RecognitionClient, type ReadyInfo } from '../workers/recognitionClient.
 const SENTENCE_PLACEHOLDER = 'Detected letters appear here…';
 const MODEL_URL = `${import.meta.env.BASE_URL}model_weights.json`;
 
+/** Dwell choices offered by the speed switch, in milliseconds. */
+const HOLD_SPEEDS: readonly number[] = [400, 800, 1500];
+const HOLD_SPEED_KEY = 'mudrapragyan.holdMs';
+
+function readStoredHoldMs(): number {
+  try {
+    const stored = Number(localStorage.getItem(HOLD_SPEED_KEY));
+    if (HOLD_SPEEDS.includes(stored)) return stored;
+  } catch {
+    // Storage unavailable; use the default.
+  }
+  return HOLD_SPEEDS[0] as number;
+}
+
 /**
  * The live translation view.
  *
@@ -54,11 +68,10 @@ export class TranslatorPage {
   readonly #dbgPerf = requireElement('dbgPerf');
 
   readonly #sentence = new SentenceBuffer();
-  // A deliberate 3-second dwell, chosen from live use: a letter commits only after
-  // being held visibly steady for three full seconds, so nothing lands by accident
-  // while the hand is still travelling between signs. The progress bar makes the
-  // wait legible. One constant to change if a faster cadence is ever preferred.
-  readonly #hold = new TimedHoldCommitDetector({ holdMs: 3000, cooldownMs: 400 });
+  // How long a letter must be held before it commits. Fast by default — the dwell
+  // is the single biggest lever on how responsive spelling feels — with the choice
+  // surfaced as a control, remembered across visits (#bindSpeedSwitch).
+  #hold = new TimedHoldCommitDetector({ holdMs: readStoredHoldMs(), cooldownMs: 400 });
   readonly #accuracyTest = new AccuracyTest();
   readonly #customSigns = new CustomSignsPanel();
   readonly #words: WordSuggestions;
@@ -83,6 +96,7 @@ export class TranslatorPage {
     this.#customSigns.bind();
 
     this.#startButton.addEventListener('click', () => void this.#startCamera());
+    this.#bindSpeedSwitch();
     requireElement('addSpace').addEventListener('click', () => this.#sentence.appendSpace());
     requireElement('backspace').addEventListener('click', () => this.#sentence.backspace());
     requireElement('clearSentence').addEventListener('click', () => {
@@ -282,6 +296,35 @@ export class TranslatorPage {
   #showCameraError(message: string): void {
     this.#camMessage.textContent = message;
     this.#camOverlay.style.display = '';
+  }
+
+  /**
+   * The hold-speed control: three cadences, remembered across visits.
+   *
+   * Changing speed swaps the detector rather than mutating it, so half-accumulated
+   * progress under the old cadence cannot leak into the new one.
+   */
+  #bindSpeedSwitch(): void {
+    const container = requireElement('speedSwitch');
+    const buttons = [...container.querySelectorAll<HTMLButtonElement>('[data-speed]')];
+    const apply = (holdMs: number): void => {
+      for (const button of buttons) {
+        button.classList.toggle('is-active', Number(button.dataset['speed']) === holdMs);
+      }
+      this.#hold = new TimedHoldCommitDetector({ holdMs, cooldownMs: 400 });
+    };
+    apply(readStoredHoldMs());
+    container.addEventListener('click', (event) => {
+      if (!(event.target instanceof HTMLElement)) return;
+      const holdMs = Number(event.target.dataset['speed']);
+      if (!HOLD_SPEEDS.includes(holdMs)) return;
+      apply(holdMs);
+      try {
+        localStorage.setItem(HOLD_SPEED_KEY, String(holdMs));
+      } catch {
+        // Private mode: the choice simply will not persist.
+      }
+    });
   }
 
   #renderLetter(letter: string, timestampMs: number): void {

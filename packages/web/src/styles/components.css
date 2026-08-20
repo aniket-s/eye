@@ -461,6 +461,10 @@
   border-radius: 11px;
 }
 
+.speed-switch {
+  margin: 0.6rem 0 0;
+}
+
 .mode-btn {
   flex: 1 1 0;
   padding: 0.4rem 0.6rem;
