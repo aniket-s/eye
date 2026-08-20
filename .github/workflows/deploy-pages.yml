@@ -40,7 +40,7 @@ jobs:
           # A GitHub Pages *project* site is served from /<repo>/. Must match the
           # repository name, with both slashes. Remove for a user site or a custom
           # domain at the root.
-          BASE_PATH: /mudrapragyan/
+          BASE_PATH: /eye/
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

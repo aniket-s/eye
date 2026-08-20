@@ -8,7 +8,7 @@ ordered by how well they fit this project.
 
 ```bash
 npm install
-npm run verify     # must pass: format, lint, typecheck, 127 tests
+npm run verify     # must pass: format, lint, typecheck, 334 tests
 npm run build      # output lands in packages/web/dist/
 ```
 
@@ -123,7 +123,10 @@ on first-load time — 11 MB uncompressed versus about 3.3 MB gzipped.
 ## Verifying a deployment
 
 1. Open the site over HTTPS.
-2. Go to **Translator** and confirm the status line reads _Model ready — 27 signs loaded_.
+2. Go to **Translator** and confirm the status line reads
+   _✅ ASL Fingerspelling (simulated) v1.0.0 — 30 signs_. If it says
+   _⚠ Legacy model — 27 signs_ instead, the model pack did not deploy — check that
+   `models/asl-fingerspell/manifest.json` is reachable on the site.
 3. Press **Start Camera** and allow the permission prompt.
 4. Open DevTools → **Network** and confirm you see only static file downloads. Nothing is
    uploaded — see [PRIVACY.md](PRIVACY.md).
