@@ -10,10 +10,18 @@ competitions, in order:
 1. **Mirror with handedness swap** — the highest-value augmentation. Combined with
    canonicalisation in the normaliser it makes left- and right-handed signers
    equivalent.
-2. **Rotation**, bounded to ±25°. Bounded deliberately: K/P and G/Q differ by
-   orientation, so unbounded rotation would relabel the data.
+2. **Rotation**, bounded hard. Bounded deliberately: H/U, K/P and G/Q differ by
+   orientation alone, so rotation past a letter's declared band relabels the data.
+   The bound is small — the *coverage* comes from each letter's declared orientation
+   band in ``asl_alphabet.py``, where it can be stated per letter and checked against
+   its twin, rather than from a blanket ±25° that had to be a compromise between
+   "enough tilt for B" and "not enough to turn a U into an H".
 3. **Anisotropic scale and shear** — stands in for camera angle and perspective.
 4. **Landmark jitter and dropout** — MediaPipe is not exact, and fingers occlude.
+5. **Targeted occlusion** — the two ways MediaPipe specifically fails on this
+   vocabulary: a thumb buried under the fingers, and crossed fingers it cannot
+   separate. Applied per letter rather than to everything, because an occlusion that
+   cannot physically happen to a letter is not robustness, it is a wrong label.
 """
 
 from __future__ import annotations
@@ -28,8 +36,9 @@ class AugmentConfig:
     """Augmentation strengths. Every probability is per-sample, per-epoch."""
 
     mirror_probability: float = 0.5
-    #: Bounded to stay well clear of the ~90° that separates K from P and G from Q.
-    max_rotation_degrees: float = 25.0
+    #: Small on purpose — see the module docstring. ``assert_bands_are_separable``
+    #: rejects any value that would let two rotation-only letters meet.
+    max_rotation_degrees: float = 8.0
     rotation_probability: float = 0.8
     scale_range: tuple[float, float] = (0.85, 1.15)
     scale_probability: float = 0.7
@@ -41,6 +50,24 @@ class AugmentConfig:
     #: Landmarks replaced by the hand centroid, mimicking an occluded finger.
     max_dropout: int = 2
     dropout_probability: float = 0.25
+    #: Chance of collapsing a hidden thumb toward the palm, for the letters that hide one.
+    thumb_occlusion_probability: float = 0.35
+    #: How far toward the palm centre a collapsed thumb is pulled, as a range.
+    thumb_occlusion_strength: tuple[float, float] = (0.25, 0.85)
+    #: Chance of merging crossed fingertips, for the letters that cross them.
+    finger_merge_probability: float = 0.4
+    #: How far the crossed tips are pulled toward each other, as a range.
+    finger_merge_strength: tuple[float, float] = (0.3, 0.95)
+
+
+#: Thumb chain past the wrist: MCP, IP, tip. Landmark 1 is the base and stays put — a
+#: hidden thumb still has a visible root.
+THUMB_CHAIN = (2, 3, 4)
+#: Palm landmarks a collapsing thumb is pulled toward.
+PALM = (0, 5, 9, 13, 17)
+#: The two fingers R winds round each other: their DIPs and tips, which is where they
+#: overlap. The knuckles stay where they are — those are never in doubt.
+CROSSED_TIPS = ((7, 8), (11, 12))
 
 
 def augment_batch(
@@ -48,6 +75,7 @@ def augment_batch(
     handedness: np.ndarray,
     rng: np.random.Generator,
     config: AugmentConfig = AugmentConfig(),
+    labels: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Augment a batch of raw landmarks, before normalisation.
 
@@ -57,6 +85,12 @@ def augment_batch(
         ``(n, 21, 3)`` raw landmarks.
     handedness:
         ``(n,)`` array of ``"left"`` / ``"right"``.
+    labels:
+        ``(n,)`` array of class labels. Optional, and only the targeted occlusions in
+        step 7 use it — they are the one augmentation that is not valid for every
+        letter, because a thumb held out in the open cannot be occluded and pretending
+        otherwise relabels the sample. Omitting it skips step 7 entirely rather than
+        applying it blindly.
 
     Returns
     -------
@@ -126,4 +160,48 @@ def augment_batch(
             which = rng.choice(points.shape[1], size=how_many, replace=False)
             points[index, which, :2] = points[index, :, :2].mean(axis=0)
 
+    # 7. Targeted occlusion: the two ways MediaPipe fails on *this* vocabulary.
+    if labels is not None:
+        _occlude(points, labels, rng, config)
+
     return points, hands
+
+
+def _occlude(
+    points: np.ndarray,
+    labels: np.ndarray,
+    rng: np.random.Generator,
+    config: AugmentConfig,
+) -> None:
+    """Degrade landmarks the way a camera does, for the letters it happens to.
+
+    Modelled rather than randomised, because MediaPipe's failures are structured and
+    Gaussian noise does not imitate them. A hidden thumb does not go missing — the
+    network still emits one, regressed toward where a thumb usually is, which is
+    inward toward the palm. Crossed fingers do not scatter — their tips converge,
+    because the model cannot tell which of two overlapping fingers it is looking at.
+
+    Both are applied in place, after normalisation-independent geometry is settled, and
+    both leave the landmarks that stay visible alone: a buried thumb still shows its
+    base, and crossed fingers still show their knuckles.
+    """
+    from ..ingest.asl_alphabet import MERGED_FINGERS, OCCLUDED_THUMB
+
+    if config.thumb_occlusion_probability > 0:
+        eligible = np.isin(labels, list(OCCLUDED_THUMB))
+        chosen = np.flatnonzero(eligible & (rng.random(len(labels)) < config.thumb_occlusion_probability))
+        for index in chosen:
+            palm = points[index, list(PALM), :2].mean(axis=0)
+            strength = float(rng.uniform(*config.thumb_occlusion_strength))
+            for joint in THUMB_CHAIN:
+                points[index, joint, :2] += (palm - points[index, joint, :2]) * strength
+
+    if config.finger_merge_probability > 0:
+        eligible = np.isin(labels, list(MERGED_FINGERS))
+        chosen = np.flatnonzero(eligible & (rng.random(len(labels)) < config.finger_merge_probability))
+        for index in chosen:
+            strength = float(rng.uniform(*config.finger_merge_strength))
+            for first, second in zip(*CROSSED_TIPS, strict=True):
+                middle = (points[index, first, :2] + points[index, second, :2]) / 2.0
+                points[index, first, :2] += (middle - points[index, first, :2]) * strength
+                points[index, second, :2] += (middle - points[index, second, :2]) * strength

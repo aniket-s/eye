@@ -30,6 +30,7 @@ Image space flips ``y`` (screens grow downward); :func:`project` does that.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import NamedTuple
 
 import numpy as np
 
@@ -232,11 +233,52 @@ def build_hand(pose: HandPose, geometry: HandGeometry | None = None) -> np.ndarr
 THUMB_BOUNDS = ((-25.0, 80.0), (-15.0, 70.0), (0.0, 55.0), (0.0, 80.0))
 
 
+class Contact(NamedTuple):
+    """Where a letter's thumb goes, declared rather than dialled in.
+
+    ``landmark`` and ``distance`` say *how close*; ``in_front_of`` and ``behind`` say
+    *which side*. Both halves are needed — see :func:`solve_thumb_contact`.
+    """
+
+    #: Landmark the thumb tip is placed relative to.
+    landmark: int
+    #: Target gap, in palm units. 0.05 is contact; 0.45 is the deliberate opening of C.
+    distance: float
+    #: Landmark the thumb tip must stay palmar of — further out from the palm.
+    in_front_of: int | None = None
+    #: Landmark the thumb tip must stay behind — closer to the palm.
+    behind: int | None = None
+
+
+def resolve_contact(pose: HandPose, geometry: HandGeometry, contact: Contact) -> HandPose:
+    """Return ``pose`` with its thumb solved to satisfy ``contact``."""
+    return HandPose(
+        fingers=pose.fingers,
+        thumb=solve_thumb_contact(
+            pose,
+            geometry,
+            contact.landmark,
+            contact.distance,
+            in_front_of=contact.in_front_of,
+            behind=contact.behind,
+        ),
+    )
+
+
+#: Palmar clearance a one-sided ``in_front_of`` / ``behind`` constraint asks for, in palm
+#: units. Roughly the thickness of a folded finger: enough that the thumb is unambiguously
+#: on one side of it rather than embedded in it.
+SIDE_CLEARANCE = 0.18
+
+
 def solve_thumb_contact(
     pose: HandPose,
     geometry: HandGeometry,
     landmark: int,
     distance: float,
+    *,
+    in_front_of: int | None = None,
+    behind: int | None = None,
 ) -> ThumbPose:
     """Adjust the thumb so its tip sits ``distance`` from ``landmark``.
 
@@ -253,6 +295,21 @@ def solve_thumb_contact(
     The declared angles act as both the starting point and a weak prior, so among the many
     thumb poses that satisfy a distance constraint the solver returns one close to the
     handshape as described, rather than an anatomically legal contortion.
+
+    Parameters
+    ----------
+    in_front_of, behind:
+        Optional landmark the thumb tip must stay *palmar of* (further from the palm) or
+        *behind*. A distance alone does not say which side of the fingers the thumb is on,
+        and for the fist letters that side is the whole letter: S clamps the thumb across
+        the **front** of the folded fingers, A leaves it behind them on the radial edge,
+        and in E the fingertips come down on top of a thumb that stays **behind** them.
+        Without this the solver is free to satisfy the distance from either side, and it
+        picked the anatomically wrong one for both S and E — which is invisible in the
+        report, because the letter still separates cleanly from its own simulated twin.
+
+        Both are one-sided penalties: they cost nothing once :data:`SIDE_CLEARANCE` is
+        satisfied, so they choose between solutions without fighting the contact.
     """
     from scipy.optimize import minimize  # imported lazily; only simulation needs it
 
@@ -268,7 +325,15 @@ def solve_thumb_contact(
         # The prior is deliberately weak — enough to choose between equally valid
         # contacts, not enough to prevent one being reached.
         prior = float(np.sum(((angles - start) / 60.0) ** 2))
-        return (gap - distance) ** 2 + 0.02 * prior
+        total = (gap - distance) ** 2 + 0.02 * prior
+
+        if in_front_of is not None:
+            short = SIDE_CLEARANCE - (points[4, 2] - points[in_front_of, 2])
+            total += max(0.0, float(short)) ** 2
+        if behind is not None:
+            short = SIDE_CLEARANCE - (points[behind, 2] - points[4, 2])
+            total += max(0.0, float(short)) ** 2
+        return total
 
     result = minimize(cost, start, method="L-BFGS-B", bounds=THUMB_BOUNDS)
     return ThumbPose(*(float(a) for a in result.x))

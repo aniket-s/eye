@@ -15,6 +15,13 @@ Everything here is built to avoid repeating that:
   not passed. Aggregates hide exactly the failures that matter.
 * **Calibration.** A confidence threshold is only meaningful if 0.9 means 0.9.
 * **Rejection quality.** Measured as AUROC for known-vs-``none``.
+* **Acceptance under the shipped thresholds.** F1 scores the ``argmax``; the app does
+  not show the ``argmax``. It shows a letter only once the smoothed probability clears
+  ``minProbability`` and the margin over the runner-up clears ``minMargin``, and shows
+  nothing otherwise. A letter can therefore score 0.95 F1 and still almost never appear
+  on screen, because its runner-up sits just behind it — and that failure is invisible
+  in every number above. :func:`acceptance_by_label` measures what the user actually
+  gets, and it is the number that answers "why does this letter not work".
 """
 
 from __future__ import annotations
@@ -52,6 +59,14 @@ class EvaluationReport:
     ece: float | None = None
     rejection_auroc: float | None = None
     test_signers: list[str] = field(default_factory=list)
+    #: Held-out truth and probabilities, kept so acceptance can be recomputed at any
+    #: operating point. The thresholds are chosen *from* this report, so acceptance
+    #: cannot be computed while building it.
+    true_indices: np.ndarray | None = None
+    probabilities: np.ndarray | None = None
+    #: Filled in by the pack builder once thresholds are chosen. See
+    #: :func:`acceptance_by_label`.
+    acceptance: dict[str, float] | None = None
 
     @property
     def worst_slice(self) -> SliceMetrics | None:
@@ -172,6 +187,58 @@ def rejection_auroc(scores: np.ndarray, is_known: np.ndarray) -> float:
     return float(u_statistic / (len(known) * len(unknown)))
 
 
+def acceptance_by_label(
+    true_indices: np.ndarray,
+    probabilities: np.ndarray,
+    labels: list[str],
+    min_probability: float,
+    min_margin: float,
+    eligible: set[str] | None = None,
+) -> dict[str, float]:
+    """Share of each label's held-out samples the app would actually show, and get right.
+
+    A faithful mirror of ``judge()`` in ``packages/core/src/decode/rejection.ts``: the
+    winner is the highest-probability *eligible* class, the margin is measured within
+    the eligible set, and ``none`` always stays eligible so rejection never depends on
+    which vocabulary is selected. Smoothing is not modelled — it only ever helps, so
+    this is a lower bound on what the app achieves.
+
+    Parameters
+    ----------
+    eligible:
+        The active vocabulary, or ``None`` for every label. Passing it matters: V and 2
+        are the same handshape, and with both eligible neither clears the margin.
+
+    Returns
+    -------
+    ``label -> fraction accepted and correct``. Not recall: a sample counts only if the
+    app would have *displayed* it.
+    """
+    keep = np.array(
+        [label == "none" or eligible is None or label in eligible for label in labels]
+    )
+    masked = np.where(keep, probabilities, -1.0)
+    winner = masked.argmax(axis=1)
+    top = probabilities[np.arange(len(winner)), winner]
+
+    ranked = np.sort(masked[:, keep], axis=1)
+    margin = ranked[:, -1] - ranked[:, -2] if ranked.shape[1] > 1 else ranked[:, -1]
+
+    none_index = labels.index("none") if "none" in labels else -1
+    shown = (winner != none_index) & (top >= min_probability) & (margin >= min_margin)
+    usable = shown & (winner == true_indices)
+
+    result: dict[str, float] = {}
+    for index, label in enumerate(labels):
+        if label == "none" or (eligible is not None and label not in eligible):
+            continue
+        mask = true_indices == index
+        if not mask.any():
+            continue
+        result[label] = float(usable[mask].mean())
+    return result
+
+
 def evaluate(
     true_indices: np.ndarray,
     predicted_indices: np.ndarray,
@@ -230,6 +297,8 @@ def evaluate(
         ece=ece,
         rejection_auroc=auroc,
         test_signers=test_signers or [],
+        true_indices=np.asarray(true_indices),
+        probabilities=np.asarray(probabilities),
     )
 
 
@@ -248,6 +317,22 @@ def format_report(report: EvaluationReport) -> str:
         lines.append(f"  reject AUC {report.rejection_auroc:.4f}  (known vs none)")
     if report.test_signers:
         lines.append(f"  held out   {', '.join(report.test_signers)}")
+
+    acceptance = report.acceptance or {}
+    if acceptance:
+        weakest = sorted(acceptance.items(), key=lambda item: item[1])
+        lines += [
+            "",
+            "  Accepted and correct, under the thresholds this pack ships with.",
+            "  This is what reaches the screen; macro-F1 above is the argmax.",
+            "",
+        ]
+        lines += [
+            "    " + "  ".join(f"{label} {share:.2f}" for label, share in group)
+            for group in (weakest[i : i + 6] for i in range(0, len(weakest), 6))
+        ]
+        floor = weakest[0]
+        lines.append(f"\n  weakest letter: {floor[0]} at {floor[1]:.2f}")
 
     lines += ["", "Per class:", f"  {'label':<10}{'support':>9}{'prec':>9}{'recall':>9}{'F1':>9}"]
     for entry in sorted(report.per_class, key=lambda c: c.f1):

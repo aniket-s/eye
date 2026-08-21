@@ -24,7 +24,7 @@ from mudra_train.ingest.handmodel import (
     HandGeometry,
     HandPose,
     build_hand,
-    solve_thumb_contact,
+    resolve_contact,
 )
 from mudra_train.ingest.simulated import CONTACTS, SHAPES
 
@@ -35,11 +35,7 @@ def hand(label: str) -> np.ndarray:
     geometry = HandGeometry()
     pose = SHAPES[label]
     if label in CONTACTS:
-        landmark, distance = CONTACTS[label]
-        pose = HandPose(
-            fingers=pose.fingers,
-            thumb=solve_thumb_contact(pose, geometry, landmark, distance),
-        )
+        pose = resolve_contact(pose, geometry, CONTACTS[label])
     return build_hand(pose, geometry)
 
 

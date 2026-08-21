@@ -320,6 +320,17 @@
       min-height: 7rem; display: flex;
       align-items: center; justify-content: center;
     }
+    /* A near miss: the letter the signer nearly made, shown while it is still being
+       adjusted rather than committed. Dimmed and outlined so it can never be mistaken
+       for a letter that has actually been read — the whole point is to distinguish
+       "almost" from "yes", and a solid glyph would say the opposite. */
+    .letter-big.is-near {
+      background: none;
+      -webkit-text-fill-color: transparent;
+      color: transparent;
+      -webkit-text-stroke: 2px var(--muted);
+      opacity: 0.75;
+    }
     .letter-label { color: var(--muted); font-size: 0.82rem; margin-top: 0.5rem; }
 
     /* Hold progress */

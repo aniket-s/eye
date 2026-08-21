@@ -17,6 +17,8 @@ import pytest
 from mudra_train.ingest.asl_alphabet import (
     ALPHABET,
     MOTION_LETTERS,
+    ORIENTATION,
+    ROTATION_ONLY_PAIRS,
     THUMB_CONTACT,
     orientation_for,
 )
@@ -30,6 +32,7 @@ from mudra_train.ingest.handmodel import (
     build_hand,
     project,
     random_geometry,
+    resolve_contact,
     solve_thumb_contact,
 )
 
@@ -42,11 +45,7 @@ def hand(letter: str, geometry: HandGeometry | None = None) -> np.ndarray:
     geometry = geometry or HandGeometry()
     pose = ALPHABET[letter]
     if letter in THUMB_CONTACT:
-        landmark, distance = THUMB_CONTACT[letter]
-        pose = HandPose(
-            fingers=pose.fingers,
-            thumb=solve_thumb_contact(pose, geometry, landmark, distance),
-        )
+        pose = resolve_contact(pose, geometry, THUMB_CONTACT[letter])
     return build_hand(pose, geometry)
 
 
@@ -190,10 +189,10 @@ class TestThumbContactSolver:
         assertion that matters is that the solver gets into the right region; a broken
         solver misses by the length of a finger, not by a tenth of a palm.
         """
-        landmark, distance = THUMB_CONTACT[letter]
+        contact = THUMB_CONTACT[letter]
         points = hand(letter)
-        reached = float(np.linalg.norm(points[TIPS["thumb"]] - points[landmark]))
-        assert reached == pytest.approx(distance, abs=0.12)
+        reached = float(np.linalg.norm(points[TIPS["thumb"]] - points[contact.landmark]))
+        assert reached == pytest.approx(contact.distance, abs=0.12)
 
     def test_holds_for_an_unusual_hand(self) -> None:
         """The reason contact is solved rather than baked in as angles.
@@ -312,8 +311,22 @@ class TestAlphabet:
         assert orientation_for("G") != orientation_for("Q")
         assert orientation_for("G") != orientation_for("A")
 
-    def test_most_letters_share_a_default_orientation(self) -> None:
-        rotated = {"G", "H", "P", "Q"}
-        for letter in ALPHABET:
-            if letter not in rotated:
-                assert orientation_for(letter) == orientation_for("A")
+    def test_only_the_letters_with_a_twin_leave_the_default_orientation(self) -> None:
+        """Every exception has to earn itself, and there are exactly six.
+
+        Four are the letters whose orientation *is* their identity — G and H lie the
+        hand on its side, P and Q aim it at the floor. The other two are U and K, which
+        are ordinary upright letters that happen to be what H and P are when rolled, so
+        their roll band is the one part of the default they cannot have.
+
+        Anything else drifting off the default is a mistake: a letter with a narrower
+        band than it needs is a letter that rejects signers whose wrists sit differently,
+        and that failure looks like ``none`` rather than like a near miss.
+        """
+        expected = {letter for pair in ROTATION_ONLY_PAIRS for letter in pair} | set(ORIENTATION)
+        actual = {
+            letter
+            for letter in ALPHABET
+            if orientation_for(letter) != orientation_for("A")
+        }
+        assert actual == expected & set(ALPHABET)

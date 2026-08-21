@@ -34,6 +34,16 @@ export interface RecognitionResultMessage {
   readonly custom?: { readonly label: string; readonly similarity: number };
   /** This frame's embedding, present only while capture is enabled. */
   readonly embedding?: readonly number[];
+  /**
+   * A motion letter completed on this frame — J or Z — or `null`.
+   *
+   * A commit rather than a reading: these two letters are paths, and a path cannot be
+   * held, so the dwell timer has nothing to measure. The frame that finishes the trace
+   * is the frame the letter is typed.
+   */
+  readonly motionLetter?: string | null;
+  /** The motion letter currently being traced, for the debug overlay. */
+  readonly tracking?: string | null;
 }
 
 export interface ReadyInfo {
@@ -46,6 +56,14 @@ export interface ReadyInfo {
   readonly supportsCustomSigns: boolean;
   /** Which letters this pack mistakes for which, for weighting word correction. */
   readonly confusions?: ConfusionProfile;
+  /**
+   * How often this pack accepts and gets right each label, on its held-out signers.
+   *
+   * Used to answer "why does this letter never work" in the near-miss hint, which is a
+   * question no aggregate metric can answer: a letter can carry an excellent F1 and
+   * still almost never clear the margin over its runner-up.
+   */
+  readonly acceptance?: Readonly<Record<string, number>>;
   /** Readings this pack offers, when its handshapes mean more than one thing. */
   readonly vocabularies?: Vocabularies;
 }
@@ -260,6 +278,7 @@ export class RecognitionClient {
           ...(message.packVersion === undefined ? {} : { packVersion: message.packVersion }),
           ...(message.confusions === undefined ? {} : { confusions: message.confusions }),
           ...(message.vocabularies === undefined ? {} : { vocabularies: message.vocabularies }),
+          ...(message.acceptance === undefined ? {} : { acceptance: message.acceptance }),
         });
         return;
       case 'error':
@@ -306,6 +325,8 @@ export class RecognitionClient {
           ...(message.display === undefined ? {} : { display: message.display }),
           ...(message.custom === undefined ? {} : { custom: message.custom }),
           ...(message.embedding === undefined ? {} : { embedding: message.embedding }),
+          ...(message.motionLetter === undefined ? {} : { motionLetter: message.motionLetter }),
+          ...(message.tracking === undefined ? {} : { tracking: message.tracking }),
         });
     }
   }
