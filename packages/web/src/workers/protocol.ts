@@ -103,6 +103,15 @@ export type WorkerResponse =
        * have to be told separately which model is loaded.
        */
       readonly confusions?: ConfusionProfile;
+      /**
+       * How often this pack accepts *and* gets right each label, on its held-out
+       * signers, at its own thresholds.
+       *
+       * Sent so the Translator can answer "why does this letter never work" without
+       * a retrain: a letter can carry an excellent F1 and still almost never clear
+       * the margin over its runner-up, and no aggregate the pack reports shows that.
+       */
+      readonly acceptance?: Readonly<Record<string, number>>;
       /** Readings this pack offers, if more than one. Drives the mode switch in the UI. */
       readonly vocabularies?: Vocabularies;
     }
@@ -116,6 +125,16 @@ export type WorkerResponse =
       readonly confidence: number | null;
       /** Why the frame was accepted or rejected, for the debug overlay. */
       readonly reason: string | null;
+      /**
+       * A motion letter completed on this frame — J or Z — or `null`.
+       *
+       * Separate from `letter` because it is a *commit*, not a reading. J and Z are
+       * paths, and a path cannot be held, so there is nothing for the dwell timer to
+       * measure: the frame that completes the trace is the frame the letter is typed.
+       */
+      readonly motionLetter?: string | null;
+      /** The motion letter currently being traced, for the debug overlay. */
+      readonly tracking?: string | null;
       /**
        * A user-defined sign that matched this frame more confidently than the
        * built-in vocabulary, if any.

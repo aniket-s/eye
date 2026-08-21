@@ -133,3 +133,9 @@ export {
 // Legacy — removed in Phases 2 and 3. See src/legacy/README.md.
 export { geometricFix } from './legacy/geometricFix.js';
 export { JzStateMachine } from './legacy/jzStateMachine.js';
+export {
+  MotionLetterRecognizer,
+  MOTION_LETTERS,
+  type MotionLetter,
+  type MotionLetterOptions,
+} from './temporal/motionLetters.js';

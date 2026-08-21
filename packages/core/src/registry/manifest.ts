@@ -100,6 +100,23 @@ export interface PackManifest {
    */
   readonly confusions?: ConfusionProfile;
   /**
+   * How often each label was accepted *and* correct on the held-out signers, at this
+   * pack's own thresholds: `label -> 0..1`.
+   *
+   * Distinct from `metrics.macroF1`, and the distinction is the point. F1 scores the
+   * `argmax`; the app never shows the `argmax`. It shows a letter only once the
+   * smoothed probability and the margin over the runner-up both clear the thresholds
+   * above, and shows nothing at all otherwise. A letter can therefore carry an
+   * excellent F1 and still almost never appear, because its runner-up sits just behind
+   * it — which is invisible in every aggregate the pack reports.
+   *
+   * Surfaced in the Translator's debug panel so "this letter never works" has an
+   * answer that does not require a retrain to discover.
+   *
+   * Optional: packs exported before this existed have none.
+   */
+  readonly acceptance?: Readonly<Record<string, number>>;
+  /**
    * Named readings of the trained handshapes: `vocabulary -> { label -> displayed text }`.
    *
    * The model predicts handshapes; a vocabulary decides what one *means*. ASL numbers
@@ -244,6 +261,7 @@ export function parseManifest(value: unknown): PackManifest {
 
   const confusions = parseConfusions(raw['confusions']);
   const vocabularies = parseVocabularies(raw['vocabularies'], labels);
+  const acceptance = parseAcceptance(raw['acceptance'], labels);
 
   const manifest: PackManifest = {
     id: requireString('id'),
@@ -268,6 +286,7 @@ export function parseManifest(value: unknown): PackManifest {
       ...(typeof metricsRaw['ece'] === 'number' ? { ece: metricsRaw['ece'] } : {}),
     },
     ...(confusions === null ? {} : { confusions }),
+    ...(acceptance === null ? {} : { acceptance }),
     ...(vocabularies === null ? {} : { vocabularies }),
     modelFile: requireString('modelFile'),
     sha256: requireString('sha256'),
@@ -276,6 +295,31 @@ export function parseManifest(value: unknown): PackManifest {
   };
 
   return manifest;
+}
+
+/**
+ * Read the acceptance profile, if a pack carries one.
+ *
+ * Lenient by design: this is diagnostic data, not an operating parameter. A malformed
+ * or partial profile costs the debug panel a line, so entries that do not name a
+ * trained label or do not carry a share in 0..1 are dropped rather than thrown over.
+ * Refusing to load a working model because a reporting field is odd would be the wrong
+ * trade.
+ */
+function parseAcceptance(raw: unknown, labels: readonly string[]): Record<string, number> | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== 'object' || Array.isArray(raw)) return null;
+
+  const known = new Set(labels);
+  const parsed: Record<string, number> = {};
+  for (const [label, share] of Object.entries(raw as Record<string, unknown>)) {
+    if (!known.has(label)) continue;
+    if (typeof share !== 'number' || !Number.isFinite(share) || share < 0 || share > 1) {
+      continue;
+    }
+    parsed[label] = share;
+  }
+  return Object.keys(parsed).length > 0 ? parsed : null;
 }
 
 /**

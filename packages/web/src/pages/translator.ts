@@ -7,6 +7,7 @@ import {
 import { requireElement } from '../dom.js';
 import { AccuracyTest } from '../features/accuracyTest.js';
 import { CustomSignsPanel } from '../features/customSigns.js';
+import { explain } from '../features/nearMiss.js';
 import { VocabularyMode } from '../features/vocabularyMode.js';
 import { WordSuggestions } from '../features/wordSuggestions.js';
 import { resolvePackId } from '../model/pack.js';
@@ -19,7 +20,11 @@ import {
 } from '../vision/camera.js';
 import { VisionLandmarker } from '../vision/landmarker.js';
 import { clearSkeleton, drawHandSkeleton } from '../vision/skeleton.js';
-import { RecognitionClient, type ReadyInfo } from '../workers/recognitionClient.js';
+import {
+  RecognitionClient,
+  type ReadyInfo,
+  type RecognitionResultMessage,
+} from '../workers/recognitionClient.js';
 
 const SENTENCE_PLACEHOLDER = 'Detected letters appear here…';
 const MODEL_URL = `${import.meta.env.BASE_URL}model_weights.json`;
@@ -66,6 +71,7 @@ export class TranslatorPage {
   readonly #dbgFixed = requireElement('dbgFixed');
   readonly #dbgConf = requireElement('dbgConf');
   readonly #dbgPerf = requireElement('dbgPerf');
+  readonly #dbgMotion = requireElement('dbgMotion');
 
   readonly #sentence = new SentenceBuffer();
   // How long a letter must be held before it commits. Fast by default — the dwell
@@ -83,6 +89,14 @@ export class TranslatorPage {
   #camera: CameraSession | null = null;
   #starting = false;
   #debugVisible = false;
+  /**
+   * The loaded pack's per-letter acceptance profile, if it carries one.
+   *
+   * Kept so a near miss can say what this pack manages on that letter. A signer
+   * fighting one letter deserves to know whether the problem is their hand or the
+   * model, and that is otherwise only discoverable by retraining.
+   */
+  #acceptance: Readonly<Record<string, number>> | null = null;
   #handsSeen = 0;
 
   constructor() {
@@ -146,6 +160,7 @@ export class TranslatorPage {
           // Word correction wants this pack's error profile, so it weights substitutions
           // by the mistakes this model actually makes.
           this.#words.start(info.confusions);
+          this.#acceptance = info.acceptance ?? null;
         } else {
           // The legacy path still runs the correction heuristics. Say so, rather than
           // presenting it as equivalent to a trained pack.
@@ -160,18 +175,27 @@ export class TranslatorPage {
         this.#renderPerf();
       },
       onResult: (result) => {
-        if (this.#debugVisible) {
-          this.#dbgRaw.textContent = result.rawLabel ?? '—';
-          this.#dbgFixed.textContent = result.letter === NO_PREDICTION ? '—' : result.letter;
-          this.#dbgConf.textContent =
-            result.confidence === null
-              ? '—'
-              : `${(result.confidence * 100).toFixed(1)}% (${result.reason ?? '—'})`;
-        }
+        if (this.#debugVisible) this.#renderVerdict(result);
         this.#customSigns.observe(result.embedding, result.timestampMs);
         if (result.letter !== NO_PREDICTION) this.#accuracyTest.observe(result.letter);
+
+        // J and Z arrive as commits, not readings: they are paths, and a path cannot be
+        // held, so the dwell timer has nothing to measure. Typed straight into the
+        // sentence, and the dwell is reset so the handshape the gesture started from —
+        // the I under a J — cannot also commit on the way out.
+        if (result.motionLetter !== null && result.motionLetter !== undefined) {
+          this.#accuracyTest.observe(result.motionLetter);
+          this.#sentence.append(result.motionLetter);
+          this.#hold.reset();
+          this.#renderMotionLetter(result.motionLetter);
+          return;
+        }
+
         // Show what the active vocabulary calls it; commit the same text to the sentence.
         this.#renderLetter(result.display ?? result.letter, result.timestampMs);
+        // A rejected frame still has something to say. Rendered after the dwell update
+        // so the hold bar stays honest — a near miss makes no progress toward a commit.
+        if (result.letter === NO_PREDICTION) this.#renderNearMiss(result);
       },
       onContinuous: (result) => {
         this.#renderContinuous(result.committed, result.provisional);
@@ -327,6 +351,42 @@ export class TranslatorPage {
     });
   }
 
+  /**
+   * Announce a motion letter, which has no dwell to show.
+   *
+   * The hold bar is filled rather than blanked: the letter *was* committed, and an
+   * empty bar next to a letter that just appeared reads as a glitch.
+   */
+  #renderMotionLetter(letter: string): void {
+    this.#letterBig.textContent = letter;
+    this.#letterBig.classList.remove('is-near');
+    this.#letterLabel.textContent = `Detected: ${letter} (motion)`;
+    this.#holdBar.style.width = '100%';
+    this.#holdPct.textContent = '100%';
+  }
+
+  /**
+   * Fill the debug panel, including why the frame was rejected.
+   *
+   * `rawLabel` is the model's own top choice before the thresholds, so on a rejected
+   * frame it names the letter the signer nearly made — which is the single most useful
+   * thing the pipeline knows and previously went nowhere.
+   */
+  #renderVerdict(result: RecognitionResultMessage): void {
+    this.#dbgRaw.textContent = result.rawLabel ?? '—';
+    this.#dbgFixed.textContent = result.letter === NO_PREDICTION ? '—' : result.letter;
+
+    if (result.letter === NO_PREDICTION) {
+      this.#dbgConf.textContent = explain(result, this.#acceptance).detail;
+    } else {
+      this.#dbgConf.textContent =
+        result.confidence === null
+          ? '—'
+          : `${(result.confidence * 100).toFixed(1)}% (${result.reason ?? '—'})`;
+    }
+    this.#dbgMotion.textContent = result.tracking ?? '—';
+  }
+
   #renderLetter(letter: string, timestampMs: number): void {
     const { committed, progressPercent } = this.#hold.update(letter, timestampMs);
 
@@ -335,6 +395,7 @@ export class TranslatorPage {
       this.#letterLabel.textContent = 'Show your hand';
     } else {
       this.#letterBig.textContent = letter;
+      this.#letterBig.classList.remove('is-near');
       this.#letterLabel.textContent = `Detected: ${letter}`;
     }
 
@@ -342,6 +403,22 @@ export class TranslatorPage {
     this.#holdPct.textContent = `${progressPercent}%`;
 
     if (committed !== null) this.#sentence.append(committed);
+  }
+
+  /**
+   * Say what the signer nearly made, instead of "Show your hand".
+   *
+   * A rejected frame used to render identically to no hand at all, so "the camera
+   * cannot see you" and "you are one wrist-turn away from a G" were the same screen.
+   * For the letters whose orientation *is* their identity — G, H, P, Q — that
+   * ambiguity was the difference between a correctable mistake and a letter that
+   * simply appeared not to work.
+   */
+  #renderNearMiss(result: RecognitionResultMessage): void {
+    const near = explain(result, this.#acceptance);
+    this.#letterBig.textContent = near.letter ?? NO_PREDICTION;
+    this.#letterBig.classList.toggle('is-near', near.letter !== null);
+    this.#letterLabel.textContent = near.message;
   }
 
   #renderPerf(): void {

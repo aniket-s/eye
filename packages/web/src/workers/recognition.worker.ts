@@ -25,6 +25,7 @@ import {
   LandmarkView,
   LegacyRecognizer,
   MlpClassifier,
+  MotionLetterRecognizer,
   NO_PREDICTION,
 } from '@mudrapragyan/core';
 import type { Handedness, MlpWeights, Vocabularies } from '@mudrapragyan/core';
@@ -42,6 +43,15 @@ const view = new LandmarkView();
 const frameView = new VisionFrameView();
 
 let modern: HandshapeRecognizer | null = null;
+/**
+ * J and Z, which no `static-handshape` pack can contain.
+ *
+ * Runs alongside `modern` rather than inside it: `HandshapeRecognizer` is documented as
+ * having no per-letter special cases and that stays true — this only reads its verdict
+ * and asks whether a path was traced. Only created for the static pipeline, because a
+ * `temporal-ctc` pack decodes J and Z itself and running both would type each twice.
+ */
+let motion: MotionLetterRecognizer | null = null;
 let continuous: ContinuousRecognizer | null = null;
 let words: IsolatedSignRecognizer | null = null;
 let legacy: LegacyRecognizer | null = null;
@@ -119,6 +129,7 @@ async function init(fallbackModelUrl: string): Promise<void> {
   if (pack !== null) {
     const classifier = await OnnxClassifier.create(pack.modelBytes, pack.manifest);
     vocabularies = pack.manifest.vocabularies;
+    motion = new MotionLetterRecognizer();
     modern = new HandshapeRecognizer(classifier, {
       // The operating point comes from the pack, not from the app. A retrain ships
       // its own thresholds, so they can never fall out of step with the weights.
@@ -137,6 +148,7 @@ async function init(fallbackModelUrl: string): Promise<void> {
       packVersion: pack.manifest.version,
       supportsCustomSigns: classifier.supportsCustomSigns,
       ...(pack.manifest.confusions === undefined ? {} : { confusions: pack.manifest.confusions }),
+      ...(pack.manifest.acceptance === undefined ? {} : { acceptance: pack.manifest.acceptance }),
       ...(pack.manifest.vocabularies === undefined
         ? {}
         : { vocabularies: pack.manifest.vocabularies }),
@@ -169,6 +181,7 @@ scope.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
 
     case 'reset':
       modern?.reset();
+      motion?.reset();
       continuous?.reset();
       words?.reset();
       legacy?.reset();
@@ -244,6 +257,16 @@ scope.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
         void modern
           .recognise(landmarks, message.handedness)
           .then((result) => {
+            // Fed the *accepted* letter, so a trace only starts once the model is
+            // actually reading I or D rather than merely leaning that way.
+            const committed =
+              motion?.update(
+                result.letter === NO_PREDICTION ? null : result.letter,
+                landmarks,
+                message.handedness,
+                message.timestampMs,
+              ) ?? null;
+
             // Arbitration between the trained vocabulary and the user's own lives in
             // `CustomSignBook`, where it is unit-tested — see `matchIfUnrecognised`.
             const custom = customSigns.matchIfUnrecognised(
@@ -268,6 +291,8 @@ scope.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
                 ? { custom: { label: custom.sign.label, similarity: custom.similarity } }
                 : {}),
               ...(capturing && result.embedding !== null ? { embedding: result.embedding } : {}),
+              motionLetter: committed,
+              tracking: motion?.tracking ?? null,
             });
           })
           .catch((error: unknown) => {

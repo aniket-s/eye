@@ -10,8 +10,8 @@
 > Translator runs the v2 pipeline out of the box. Without a pack the app falls back to the
 > v1 legacy model, whose hand-tuned overrides systematically misread E, K, M, N, T and X
 > (`docs/AUDIT.md` §2) — if the status bar ever says “Legacy model”, the pack is missing
-> from the deployment. J and Z are motion letters: a static pack cannot represent them, a
-> `temporal-ctc` pack can — see [Training on real data](#training-on-real-data).
+> from the deployment. **J and Z work**: no static pack can contain them, so they are read
+> as motion on top of one — see [The two letters that move](#the-two-letters-that-move).
 
 ---
 
@@ -73,22 +73,50 @@ kinematic hand model: a bone skeleton with anthropometric proportions, articulat
 configurations and finger contacts that define the manual alphabet, then projected through a
 camera with viewpoint, anatomy and tracking noise randomised per simulated signer.
 
-|                   |                                             |
-| ----------------- | ------------------------------------------- |
-| macro-F1          | **0.968** on 5 held-out _simulated_ signers |
-| Worst slice       | 0.922 (transitions between letters)         |
-| Calibration error | 0.009                                       |
-| Vocabulary        | 24 static letters + `none`                  |
-| Size              | 525 KB, int8                                |
+|                    |                                             |
+| ------------------ | ------------------------------------------- |
+| macro-F1           | **0.968** on 5 held-out _simulated_ signers |
+| Worst slice        | 0.929 (transitions between letters)         |
+| **Weakest letter** | **0.877** accepted and correct (E)          |
+| Calibration error  | 0.009                                       |
+| Vocabulary         | 24 static letters + `none`                  |
+| Size               | 525 KB, int8                                |
 
-**Read that first number carefully.** It measures generalisation across simulated anatomy, not
+**Read the first number carefully.** It measures generalisation across simulated anatomy, not
 performance on your camera. It is an upper bound; the real figure will be lower. A simulated
 hand has no skin, no motion blur, and MediaPipe's errors on a real hand are structured in ways
 Gaussian noise does not imitate. M, N and T — where the thumb hides under the fingers — are the
 least faithful.
 
-**J and Z are absent.** Both are motion letters and a single frame cannot represent either.
-Train a `temporal-ctc` pack for those.
+**And read the third one, because macro-F1 will not tell you what the first two lines of this
+table cannot.** F1 scores the `argmax`; the app never shows the `argmax`. It shows a letter
+only once the probability and the margin over the runner-up clear the pack's thresholds, and
+shows nothing at all otherwise — so a letter can carry an excellent F1 and still, to the
+person signing, be a letter the app cannot do. Every pack now reports **accepted and correct**
+per letter, in its manifest and its model card, and `test_shipped_pack.py` fails the build if
+any letter falls through the floor. That number is the one that answers "why does this letter
+never work".
+
+**J and Z are absent from the pack**, necessarily — see below.
+
+### The two letters that move
+
+Twenty-four letters are handshapes. J and Z are handshapes _plus a path_ — J hooks the
+pinky down and round, Z draws the letter with the index — and one frame carries no path,
+so no `static-handshape` pack can contain either. A classifier that claimed to read them
+would be guessing.
+
+They are read instead by `MotionLetterRecognizer`, which runs **after** the classifier
+and consumes its verdict: while the model reads `I`, did the pinky trace a hook? That
+keeps `HandshapeRecognizer` free of per-letter special cases — the thing that made v1
+un-retrainable — and keeps the two letters honest about what they are.
+
+Being a path rather than a pose, a motion letter commits the moment the trace completes;
+there is nothing for the dwell timer to hold. Every threshold is in milliseconds and in
+_hand widths_, so the gesture reads the same on a 24 fps phone as a 60 fps laptop, and at
+arm's length as up close.
+
+A `temporal-ctc` pack makes them ordinary labels instead, and switches this off.
 
 ### Numbers, and why there is a mode switch
 
@@ -258,8 +286,11 @@ design, and its limits, are in [ADR 0005](docs/adr/0005-few-shot-custom-signs.md
 These are **real and documented**, not hidden. Full detail in [`docs/AUDIT.md`](docs/AUDIT.md).
 
 - **The shipped pack is trained on simulated hands.** It replaces the v1 fallback (which
-  systematically misread E, K, M, N, T and X), but M, N, T and E remain its weakest letters
-  and J/Z need a `temporal-ctc` pack. Retraining on real recordings beats it.
+  systematically misread E, K, M, N, T and X). **E, N, S and T remain its weakest letters** —
+  they differ only in how many fingers cover a thumb the camera cannot see, which is exactly
+  where a geometric model is guessing. Every pack reports its per-letter acceptance so this
+  is a published number rather than something you discover with your own hands. Retraining
+  on real recordings beats it.
 - **The in-app accuracy test is not a benchmark.** It measures one person in one session and
   cannot predict performance for anyone else (A3). Real evaluation lives in `training/`.
 - **The Dictionary lists only the alphabet and numbers.** Word categories were removed
@@ -269,7 +300,16 @@ These are **real and documented**, not hidden. Full detail in [`docs/AUDIT.md`](
 
 Fixed once a pack is installed: left-handed signers (M1), depth noise (M3), spurious
 letters during transitions (M4, M5), the 2.5 MB model download (M6 — now ~520 KB int8),
-and, with a CTC pack, the dwell timer and the J/Z state machine (J1–J3).
+and, with a CTC pack, the dwell timer (J1–J3).
+
+Fixed in the pack itself, and worth naming because none of them showed up in any metric the
+project reported at the time: the Dictionary illustrated **different letters from the ones
+the model was trained on** — G and H drawn pointing the opposite way, R drawn as U, K's thumb
+drawn beside the fist rather than between the fingers (A9); every letter was generated at a
+single orientation, so a signer whose wrist sat 40° off got `none` rather than a near miss;
+S's thumb was modelled behind the folded fingers instead of clamped across the front of them,
+which is where A's thumb goes; and a rejected frame rendered identically to no hand at
+all (A10).
 
 ## Roadmap
 

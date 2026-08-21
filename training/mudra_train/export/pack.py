@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from ..eval.metrics import EvaluationReport
+from ..eval.metrics import EvaluationReport, acceptance_by_label
 from ..features.normalise import FEATURE_LENGTH, NORMALISATION_SCHEME
 from ..models.classifier import HandshapeClassifier
 
@@ -260,8 +260,10 @@ def write_card(
             "> thumb-tucked letters are the least faithful, because how far the thumb",
             "> disappears under the fingers is exactly what a geometric model guesses at.",
             ">",
-            "> **J and Z are absent.** Both are motion letters and cannot be represented by",
-            "> a single frame. Use a `temporal-ctc` pack for those.",
+            "> **J and Z are absent.** Both are handshapes *plus a path*, and a single",
+            "> frame carries no path, so no static pack can contain them. The app reads",
+            "> them with `MotionLetterRecognizer`, which runs after this model; a",
+            "> `temporal-ctc` pack makes them ordinary labels instead.",
             ">",
             "> Recording thirty minutes of your own data with `packages/web/recorder.html`",
             "> and retraining will beat this. That is the intended upgrade path.",
@@ -301,6 +303,26 @@ def write_card(
         if worst is not None:
             lines += ["", f"**Worst slice: {worst.name} at {worst.macro_f1:.4f}.**"]
 
+    if report.acceptance:
+        lines += [
+            "",
+            "### What reaches the screen",
+            "",
+            "macro-F1 above scores the `argmax`. The app never shows the `argmax` — it",
+            "shows a letter only once the probability and the margin over the runner-up",
+            "both clear this pack's thresholds. So a letter can score well above and",
+            "still, to the person signing, be a letter the app cannot do. This is the",
+            "share of each letter that is **accepted and correct**, which is what they",
+            "actually get.",
+            "",
+            "| Letter | Accepted and correct |",
+            "| --- | --- |",
+        ]
+        lines += [
+            f"| {label} | {share:.3f} |"
+            for label, share in sorted(report.acceptance.items(), key=lambda item: item[1])
+        ]
+
     confusions = report.top_confusions(8)
     if confusions:
         lines += ["", "### Most frequent confusions", ""]
@@ -310,16 +332,56 @@ def write_card(
         "",
         "## Limitations",
         "",
-        "- Static handshapes only. J and Z require motion and are not covered here.",
+        "- Static handshapes only. J and Z are paths, and are read separately.",
         "- Trained on the conditions present in the data. Lighting, camera angles, or",
         "  skin tones outside that range are untested.",
-        "- Rotation is preserved rather than normalised, because K/P and G/Q differ only",
-        "  by orientation. Tilt beyond the ±25° augmentation range will degrade.",
+        "- Rotation is preserved rather than normalised, because H/U, K/P and G/Q differ",
+        "  only by orientation. Each letter declares the band of orientations it is",
+        "  signed at (`ingest/asl_alphabet.py`); outside its band, expect `none` rather",
+        "  than a near miss.",
         "- The `none` class rejects transitions, but no rejector is perfect; spurious",
         "  letters remain possible during fast fingerspelling.",
         "",
     ]
     path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def acceptance_profile(
+    report: EvaluationReport,
+    thresholds: dict[str, float | None],
+    vocabularies: dict[str, dict[str, str]] | None,
+) -> dict[str, float]:
+    """Accepted-and-correct rate per label, at this pack's own operating point.
+
+    Measured once per vocabulary the pack offers, because eligibility changes the
+    answer: with both V and 2 in play neither clears the margin, and a letters-mode
+    number computed with the digits eligible would understate every shared handshape.
+    A label reachable from more than one vocabulary keeps its best reading, which is
+    the one the user gets after selecting the mode they meant.
+
+    Returns an empty mapping when the report carries no probabilities — an older report,
+    or one built by a caller that did not keep them.
+    """
+    if report.true_indices is None or report.probabilities is None:
+        return {}
+
+    vocabulary_sets: list[set[str] | None] = (
+        [set(mapping) for mapping in vocabularies.values()] if vocabularies else [None]
+    )
+
+    best: dict[str, float] = {}
+    for eligible in vocabulary_sets:
+        measured = acceptance_by_label(
+            report.true_indices,
+            report.probabilities,
+            report.labels,
+            float(thresholds["minProbability"] or 0.0),
+            float(thresholds["minMargin"] or 0.0),
+            eligible,
+        )
+        for label, share in measured.items():
+            best[label] = max(best.get(label, 0.0), share)
+    return best
 
 
 def confusion_profile(report: EvaluationReport, *, minimum: float = 0.01) -> dict:
@@ -415,6 +477,15 @@ def build_pack(
 
     pack_id = "synthetic-fingerspell" if synthetic else "asl-fingerspell"
     worst = report.worst_slice
+    thresholds = choose_thresholds(report)
+    vocabularies = build_vocabularies(classes)
+
+    # What the user actually gets, measured at the operating point this pack ships with
+    # and under each vocabulary it offers. Recorded on the report so `format_report`
+    # prints it, and in the manifest so a regression in one letter is visible in a diff
+    # rather than only in someone's camera.
+    acceptance = acceptance_profile(report, thresholds, vocabularies)
+    report.acceptance = acceptance
 
     manifest = {
         "id": pack_id,
@@ -434,19 +505,22 @@ def build_pack(
             "hands": 1,
             "normalisation": NORMALISATION_SCHEME,
         },
-        "thresholds": choose_thresholds(report),
+        "thresholds": thresholds,
         "metrics": {
             "macroF1": round(report.macro_f1, 6),
             "worstSliceF1": round(worst.macro_f1 if worst else report.macro_f1, 6),
             "ece": round(report.ece, 6) if report.ece is not None else None,
             "testSigners": len(report.test_signers),
+            # The weakest letter, measured as accepted-and-correct rather than as F1.
+            # A pack can carry a fine macro-F1 and still have one letter that never
+            # reaches the screen, which is the failure this number exists to expose.
+            "worstLetterAcceptance": (
+                round(min(acceptance.values()), 6) if acceptance else None
+            ),
         },
+        "acceptance": {label: round(share, 4) for label, share in sorted(acceptance.items())},
         "confusions": confusion_profile(report),
-        **(
-            {"vocabularies": vocabularies}
-            if (vocabularies := build_vocabularies(classes))
-            else {}
-        ),
+        **({"vocabularies": vocabularies} if vocabularies else {}),
         "modelFile": "model.onnx",
         "sha256": sha256_of(model_path),
         "licence": (

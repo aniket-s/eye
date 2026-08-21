@@ -38,9 +38,18 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .asl_alphabet import ALPHABET, MOTION_LETTERS, THUMB_CONTACT, orientation_for
+from .asl_alphabet import (
+    ALPHABET,
+    MOTION_LETTERS,
+    THUMB_CONTACT,
+    Orientation,
+    Variation,
+    orientation_for,
+    variation_for,
+)
 from .asl_numbers import NUMBER_ALIASES, NUMBER_CONTACT, NUMBER_SHAPES
 from .handmodel import (
+    Contact,
     FingerPose,
     HandGeometry,
     HandPose,
@@ -48,7 +57,7 @@ from .handmodel import (
     build_hand,
     project,
     random_geometry,
-    solve_thumb_contact,
+    resolve_contact,
 )
 from .recorder import Dataset
 
@@ -61,6 +70,11 @@ NONE_FRACTION = 0.22
 
 #: Fraction of samples generated as left hands.
 LEFT_HAND_FRACTION = 0.3
+
+#: The orientation band for ``none``: everything. A hand doing nothing in particular is
+#: at no particular angle, and the negative class has to cover the angles between every
+#: pair of letters as well as the ones inside them.
+ANY_ORIENTATION = Orientation(yaw=(-40.0, 40.0), pitch=(-45.0, 45.0), roll=(-180.0, 180.0))
 
 #: Per-landmark tracking noise in image units, before the per-signer multiplier.
 #:
@@ -119,17 +133,74 @@ def make_signers(count: int, rng: np.random.Generator) -> list[Signer]:
 SHAPES: dict[str, HandPose] = {**ALPHABET, **NUMBER_SHAPES}
 
 #: Thumb contacts for every shape that has one.
-CONTACTS: dict[str, tuple[int, float]] = {**THUMB_CONTACT, **NUMBER_CONTACT}
+CONTACTS: dict[str, Contact] = {**THUMB_CONTACT, **NUMBER_CONTACT}
 
 
-def _resolve_pose(letter: str, signer: Signer) -> HandPose:
-    """The letter as *this* signer's hand makes it.
+#: How many discrete levels a letter's curl range is sampled at.
+#:
+#: Discrete rather than continuous so the thumb-contact solve can be cached. The solve
+#: is the expensive step in generating a dataset — an L-BFGS-B fit per sample put a full
+#: run at ~35 minutes, nearly all of it re-deriving answers that differ by less than the
+#: per-repetition wobble applied immediately afterwards. Nine levels across the widest
+#: declared range is a step of 0.05, well under that wobble, and the signer's own
+#: articulation multiplier stays continuous on top — so the distribution the model
+#: trains on is still continuous.
+CURL_LEVELS = 9
+
+
+def _styled(letter: str, rng: np.random.Generator) -> tuple[HandPose, int]:
+    """One stylistic reading of a letter, before any signer's anatomy touches it.
+
+    Samples the letter's declared :class:`~.asl_alphabet.Variation`: how curled, how
+    spread, how far crossed. This is the axis the previous pack had no coverage of at
+    all — every sample of a letter used the single declared pose, so the model learned
+    the midpoint of a range and rejected the ends of it.
+
+    Returns the pose and the curl level it was drawn at, which keys the contact cache.
+    """
+    declared = SHAPES[letter]
+    variation = variation_for(letter)
+    level = int(rng.integers(CURL_LEVELS))
+    low, high = variation.curl
+    curl = low + (high - low) * level / (CURL_LEVELS - 1)
+
+    fingers = []
+    for finger in declared.fingers:
+        cross = finger.cross
+        if cross and variation.cross is not None:
+            # Sign carries which finger crosses which way; only the depth varies.
+            cross = float(np.sign(cross) * rng.uniform(*variation.cross))
+        fingers.append(
+            FingerPose(
+                mcp=finger.mcp * curl,
+                pip=finger.pip * curl,
+                dip=finger.dip * curl,
+                splay=finger.splay + float(rng.normal(0.0, variation.splay)),
+                cross=cross,
+            )
+        )
+    return HandPose(fingers=tuple(fingers), thumb=declared.thumb), level  # type: ignore[arg-type]
+
+
+#: Solved thumb poses, keyed by (signer, letter, curl level). See :data:`CURL_LEVELS`.
+ContactCache = dict[tuple[str, str, int], ThumbPose]
+
+
+def _resolve_pose(
+    letter: str,
+    signer: Signer,
+    rng: np.random.Generator,
+    cache: ContactCache | None = None,
+) -> HandPose:
+    """The letter as *this* signer's hand makes it, in one of its stylistic readings.
 
     Contacts are re-solved against their bone lengths, so the thumb still meets the
     fingertip it is supposed to meet rather than merely reusing an angle that happened to
-    work for the average hand.
+    work for the average hand. They are also re-solved per *curl level* now that the
+    shape varies within a signer: a thumb solved against a loosely curled E does not meet
+    anything on a tightly curled one.
     """
-    declared = SHAPES[letter]
+    styled, level = _styled(letter, rng)
     fingers = tuple(
         FingerPose(
             mcp=finger.mcp * signer.articulation,
@@ -138,17 +209,21 @@ def _resolve_pose(letter: str, signer: Signer) -> HandPose:
             splay=finger.splay,
             cross=finger.cross,
         )
-        for finger in declared.fingers
+        for finger in styled.fingers
     )
-    pose = HandPose(fingers=fingers, thumb=declared.thumb)  # type: ignore[arg-type]
+    pose = HandPose(fingers=fingers, thumb=styled.thumb)  # type: ignore[arg-type]
 
-    if letter in CONTACTS:
-        landmark, distance = CONTACTS[letter]
-        pose = HandPose(
-            fingers=pose.fingers,
-            thumb=solve_thumb_contact(pose, signer.geometry, landmark, distance),
-        )
-    return pose
+    if letter not in CONTACTS:
+        return pose
+
+    key = (signer.name, letter, level)
+    if cache is None or key not in cache:
+        solved = resolve_contact(pose, signer.geometry, CONTACTS[letter]).thumb
+        if cache is not None:
+            cache[key] = solved
+    else:
+        solved = cache[key]
+    return HandPose(fingers=pose.fingers, thumb=solved)  # type: ignore[arg-type]
 
 
 def _wobble(pose: HandPose, signer: Signer, rng: np.random.Generator) -> HandPose:
@@ -173,24 +248,59 @@ def _wobble(pose: HandPose, signer: Signer, rng: np.random.Generator) -> HandPos
     return HandPose(fingers=fingers, thumb=thumb)  # type: ignore[arg-type]
 
 
+def _sample_orientation(
+    band: Orientation, signer: Signer, rng: np.random.Generator
+) -> tuple[float, float, float]:
+    """One viewpoint from a letter's declared band, biased by the signer's posture.
+
+    Uniform within the band rather than Gaussian around its centre. That is the whole
+    reason the band exists: a Gaussian is thin at the edges, so the orientations a
+    less typical signer actually uses are the ones the model sees least of — and an
+    orientation the model has not seen does not degrade gracefully, it lands in
+    ``none``.
+
+    The signer's habitual posture shifts them within the band and is then clamped back
+    to it, so someone who always tilts piles up against an edge (which is realistic)
+    without ever crossing it (which for H, P and Q would mean signing U, K or G under
+    the wrong label).
+    """
+    return (
+        _within(band.yaw, rng.uniform(*band.yaw) + signer.posture[0]),
+        _within(band.pitch, rng.uniform(*band.pitch) + signer.posture[1]),
+        _within(band.roll, rng.uniform(*band.roll) + signer.posture[2]),
+    )
+
+
+def _within(band: tuple[float, float], value: float) -> float:
+    return float(min(max(value, band[0]), band[1]))
+
+
+def _off_centre(band: tuple[float, float], value: float) -> float:
+    """How far into a band's outer reaches a value sits: 0 at the centre, 1 at an edge."""
+    half = (band[1] - band[0]) / 2.0
+    if half <= 0.0:
+        return 0.0
+    return abs(value - (band[0] + half)) / half
+
+
 def _render(
     pose: HandPose,
     signer: Signer,
-    orientation: tuple[float, float, float],
+    band: Orientation,
     rng: np.random.Generator,
 ) -> tuple[np.ndarray, str, str]:
     """Pose → landmarks as a camera would see them. Returns points, hand, condition."""
-    yaw, pitch, roll = orientation
-    yaw += signer.posture[0] + rng.normal(0.0, 14.0)
-    pitch += signer.posture[1] + rng.normal(0.0, 12.0)
-    roll += signer.posture[2] + rng.normal(0.0, 10.0)
+    yaw, pitch, roll = _sample_orientation(band, signer, rng)
 
     # Perspective strength and apparent size, which together stand in for how close the
     # signer is sitting to the camera.
     distance = float(rng.uniform(4.0, 10.0))
     scale = float(rng.uniform(0.15, 0.32))
     condition = "near" if scale > 0.27 else "far" if scale < 0.19 else "normal"
-    if abs(yaw) > 28 or abs(pitch) > 28:
+    # "Angled" means unusual *for this letter*, not far from upright. G is signed on its
+    # side by definition, so an absolute threshold would file every G under `angled` and
+    # turn the worst-slice metric into a report on four letters.
+    if _off_centre(band.yaw, yaw) > 0.9 or _off_centre(band.pitch, pitch) > 0.9:
         condition = "angled"
 
     hand = "left" if rng.random() < LEFT_HAND_FRACTION else "right"
@@ -291,17 +401,14 @@ def generate(
     hands: list[str] = []
     conditions: list[str] = []
 
-    for signer in people:
-        # Contacts are solved once per signer per letter, not per sample: it is an
-        # optimisation, and the answer only depends on their bone lengths.
-        resolved = {letter: _resolve_pose(letter, signer) for letter in letters}
+    cache: ContactCache = {}
 
+    for signer in people:
         for letter in letters:
-            orientation = orientation_for(letter)
+            band = orientation_for(letter)
             for _ in range(per_signer):
-                points, hand, condition = _render(
-                    _wobble(resolved[letter], signer, rng), signer, orientation, rng
-                )
+                pose = _wobble(_resolve_pose(letter, signer, rng, cache), signer, rng)
+                points, hand, condition = _render(pose, signer, band, rng)
                 landmarks.append(points)
                 labels.append(letter)
                 signer_ids.append(signer.name)
@@ -311,24 +418,15 @@ def generate(
         none_count = int(len(letters) * per_signer * NONE_FRACTION)
         for index in range(none_count):
             if index % 2 == 0:
-                first = resolved[letters[int(rng.integers(len(letters)))]]
-                second = resolved[letters[int(rng.integers(len(letters)))]]
+                first = _resolve_pose(letters[int(rng.integers(len(letters)))], signer, rng, cache)
+                second = _resolve_pose(letters[int(rng.integers(len(letters)))], signer, rng, cache)
                 pose = _blend(first, second, float(rng.uniform(0.3, 0.7)))
                 condition_hint = "transition"
             else:
                 pose = _random_pose(rng)
                 condition_hint = "idle"
 
-            points, hand, _ = _render(
-                pose,
-                signer,
-                (
-                    float(rng.uniform(-40, 40)),
-                    float(rng.uniform(-45, 45)),
-                    float(rng.uniform(-180, 180)),
-                ),
-                rng,
-            )
+            points, hand, _ = _render(pose, signer, ANY_ORIENTATION, rng)
             landmarks.append(points)
             labels.append("none")
             signer_ids.append(signer.name)

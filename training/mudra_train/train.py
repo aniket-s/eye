@@ -40,6 +40,7 @@ from .export.pack import build_pack
 from .features.augment import AugmentConfig, augment_batch
 from .features.normalise import FEATURE_LENGTH, normalise_batch
 from .ingest import simulated, synthetic
+from .ingest.asl_alphabet import assert_bands_are_separable
 from .ingest.recorder import Dataset, load_directory
 from .models.classifier import HandshapeClassifier
 
@@ -101,10 +102,18 @@ def train(
         optimiser, max_lr=learning_rate, total_steps=epochs * steps_per_epoch, pct_start=0.25
     )
     augment_config = AugmentConfig()
+    # Rotation augmentation and the declared orientation bands are two halves of one
+    # decision, and they are made in different files. Checking them against each other
+    # here is the only place both are in scope — and the failure it catches is silent:
+    # if augmentation widens H's band until it meets U's, the training set contains the
+    # same geometry under both labels, and the report still looks healthy because H is
+    # still perfectly separable from every letter that is not U.
+    assert_bands_are_separable(augment_config.max_rotation_degrees)
 
     train_landmarks = dataset.landmarks[train_indices]
     train_hands = dataset.hands[train_indices]
     train_targets = targets[train_indices]
+    train_labels = dataset.labels[train_indices]
 
     started = time.time()
     for epoch in range(epochs):
@@ -118,7 +127,11 @@ def train(
 
             # Augment raw landmarks, then normalise — the same order inference uses.
             points, hands = augment_batch(
-                train_landmarks[batch], train_hands[batch], rng, augment_config
+                train_landmarks[batch],
+                train_hands[batch],
+                rng,
+                augment_config,
+                train_labels[batch],
             )
             features = torch.from_numpy(normalise_batch(points, hands)).to(device)
             labels = torch.from_numpy(train_targets[batch]).to(device)
@@ -161,9 +174,9 @@ def train(
         test_signers=held_out,
     )
 
-    if not quiet:
-        print(format_report(report))
-
+    # The pack is built before the report is printed, not after: choosing the operating
+    # point is what makes per-letter acceptance computable, and acceptance is the part
+    # of the report that says what a user will actually get.
     pack = build_pack(
         model=model,
         classes=classes,
@@ -172,6 +185,9 @@ def train(
         synthetic=synthetic_data,
         simulated=simulated_data,
     )
+
+    if not quiet:
+        print(format_report(report))
     if not quiet:
         size_kb = pack["sizeBytes"] / 1024
         saved = 1 - pack["sizeBytes"] / pack["floatSizeBytes"]

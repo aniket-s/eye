@@ -35,7 +35,7 @@ finds the angles for whatever hand it is given.
 from __future__ import annotations
 
 from .asl_alphabet import EXT, FIST, _splayed
-from .handmodel import FingerPose, HandPose, ThumbPose
+from .handmodel import Contact, FingerPose, HandPose, ThumbPose
 
 #: Digits that are the same handshape as a letter, so the model never learns them twice.
 #:
@@ -107,9 +107,9 @@ NUMBER_SHAPES: dict[str, HandPose] = {
 }
 
 #: Where the thumb meets, for the digits defined by contact. Same machinery as F and O.
-NUMBER_CONTACT: dict[str, tuple[int, float]] = {
-    "7": (16, 0.05),  # ring fingertip
-    "8": (12, 0.05),  # middle fingertip
+NUMBER_CONTACT: dict[str, Contact] = {
+    "7": Contact(16, 0.05),  # ring fingertip
+    "8": Contact(12, 0.05),  # middle fingertip
 }
 
 #: What a numbers-mode reader displays for each trained label.
